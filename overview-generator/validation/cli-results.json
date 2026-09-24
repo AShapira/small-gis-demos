@@ -1,0 +1,803 @@
+[
+  {
+    "test": "bilinear dry-run preservation",
+    "outcome": "PASS",
+    "details": {
+      "planned": 9,
+      "files_preserved": 12,
+      "hashes_sizes_mtimes_identical": true
+    }
+  },
+  {
+    "test": "bilinear state/type matrix",
+    "outcome": "PASS",
+    "details": {
+      "files": 9,
+      "dry_run": {
+        "planned": 9,
+        "files_preserved": 12,
+        "hashes_sizes_mtimes_identical": true
+      },
+      "outputs": {
+        "byte-embedded.tif": {
+          "pixels_compared": 245760,
+          "dimensions": [
+            [
+              1,
+              2,
+              512,
+              384
+            ],
+            [
+              1,
+              4,
+              256,
+              192
+            ]
+          ]
+        },
+        "byte-external.tif": {
+          "pixels_compared": 245760,
+          "dimensions": [
+            [
+              1,
+              2,
+              512,
+              384
+            ],
+            [
+              1,
+              4,
+              256,
+              192
+            ]
+          ]
+        },
+        "byte-none.tif": {
+          "pixels_compared": 245760,
+          "dimensions": [
+            [
+              1,
+              2,
+              512,
+              384
+            ],
+            [
+              1,
+              4,
+              256,
+              192
+            ]
+          ]
+        },
+        "float-embedded.tif": {
+          "pixels_compared": 245760,
+          "dimensions": [
+            [
+              1,
+              2,
+              512,
+              384
+            ],
+            [
+              1,
+              4,
+              256,
+              192
+            ]
+          ]
+        },
+        "float-external.tif": {
+          "pixels_compared": 245760,
+          "dimensions": [
+            [
+              1,
+              2,
+              512,
+              384
+            ],
+            [
+              1,
+              4,
+              256,
+              192
+            ]
+          ]
+        },
+        "float-none.tif": {
+          "pixels_compared": 245760,
+          "dimensions": [
+            [
+              1,
+              2,
+              512,
+              384
+            ],
+            [
+              1,
+              4,
+              256,
+              192
+            ]
+          ]
+        },
+        "multi-embedded.tif": {
+          "pixels_compared": 737280,
+          "dimensions": [
+            [
+              1,
+              2,
+              512,
+              384
+            ],
+            [
+              1,
+              4,
+              256,
+              192
+            ],
+            [
+              2,
+              2,
+              512,
+              384
+            ],
+            [
+              2,
+              4,
+              256,
+              192
+            ],
+            [
+              3,
+              2,
+              512,
+              384
+            ],
+            [
+              3,
+              4,
+              256,
+              192
+            ]
+          ]
+        },
+        "multi-external.tif": {
+          "pixels_compared": 737280,
+          "dimensions": [
+            [
+              1,
+              2,
+              512,
+              384
+            ],
+            [
+              1,
+              4,
+              256,
+              192
+            ],
+            [
+              2,
+              2,
+              512,
+              384
+            ],
+            [
+              2,
+              4,
+              256,
+              192
+            ],
+            [
+              3,
+              2,
+              512,
+              384
+            ],
+            [
+              3,
+              4,
+              256,
+              192
+            ]
+          ]
+        },
+        "multi-none.tif": {
+          "pixels_compared": 737280,
+          "dimensions": [
+            [
+              1,
+              2,
+              512,
+              384
+            ],
+            [
+              1,
+              4,
+              256,
+              192
+            ],
+            [
+              2,
+              2,
+              512,
+              384
+            ],
+            [
+              2,
+              4,
+              256,
+              192
+            ],
+            [
+              3,
+              2,
+              512,
+              384
+            ],
+            [
+              3,
+              4,
+              256,
+              192
+            ]
+          ]
+        }
+      },
+      "base_pixels_metadata_preserved": true
+    },
+    "seconds": 1.281
+  },
+  {
+    "test": "average dry-run preservation",
+    "outcome": "PASS",
+    "details": {
+      "planned": 9,
+      "files_preserved": 12,
+      "hashes_sizes_mtimes_identical": true
+    }
+  },
+  {
+    "test": "average state/type matrix",
+    "outcome": "PASS",
+    "details": {
+      "files": 9,
+      "dry_run": {
+        "planned": 9,
+        "files_preserved": 12,
+        "hashes_sizes_mtimes_identical": true
+      },
+      "outputs": {
+        "byte-embedded.tif": {
+          "pixels_compared": 245760,
+          "dimensions": [
+            [
+              1,
+              2,
+              512,
+              384
+            ],
+            [
+              1,
+              4,
+              256,
+              192
+            ]
+          ]
+        },
+        "byte-external.tif": {
+          "pixels_compared": 245760,
+          "dimensions": [
+            [
+              1,
+              2,
+              512,
+              384
+            ],
+            [
+              1,
+              4,
+              256,
+              192
+            ]
+          ]
+        },
+        "byte-none.tif": {
+          "pixels_compared": 245760,
+          "dimensions": [
+            [
+              1,
+              2,
+              512,
+              384
+            ],
+            [
+              1,
+              4,
+              256,
+              192
+            ]
+          ]
+        },
+        "float-embedded.tif": {
+          "pixels_compared": 245760,
+          "dimensions": [
+            [
+              1,
+              2,
+              512,
+              384
+            ],
+            [
+              1,
+              4,
+              256,
+              192
+            ]
+          ]
+        },
+        "float-external.tif": {
+          "pixels_compared": 245760,
+          "dimensions": [
+            [
+              1,
+              2,
+              512,
+              384
+            ],
+            [
+              1,
+              4,
+              256,
+              192
+            ]
+          ]
+        },
+        "float-none.tif": {
+          "pixels_compared": 245760,
+          "dimensions": [
+            [
+              1,
+              2,
+              512,
+              384
+            ],
+            [
+              1,
+              4,
+              256,
+              192
+            ]
+          ]
+        },
+        "multi-embedded.tif": {
+          "pixels_compared": 737280,
+          "dimensions": [
+            [
+              1,
+              2,
+              512,
+              384
+            ],
+            [
+              1,
+              4,
+              256,
+              192
+            ],
+            [
+              2,
+              2,
+              512,
+              384
+            ],
+            [
+              2,
+              4,
+              256,
+              192
+            ],
+            [
+              3,
+              2,
+              512,
+              384
+            ],
+            [
+              3,
+              4,
+              256,
+              192
+            ]
+          ]
+        },
+        "multi-external.tif": {
+          "pixels_compared": 737280,
+          "dimensions": [
+            [
+              1,
+              2,
+              512,
+              384
+            ],
+            [
+              1,
+              4,
+              256,
+              192
+            ],
+            [
+              2,
+              2,
+              512,
+              384
+            ],
+            [
+              2,
+              4,
+              256,
+              192
+            ],
+            [
+              3,
+              2,
+              512,
+              384
+            ],
+            [
+              3,
+              4,
+              256,
+              192
+            ]
+          ]
+        },
+        "multi-none.tif": {
+          "pixels_compared": 737280,
+          "dimensions": [
+            [
+              1,
+              2,
+              512,
+              384
+            ],
+            [
+              1,
+              4,
+              256,
+              192
+            ],
+            [
+              2,
+              2,
+              512,
+              384
+            ],
+            [
+              2,
+              4,
+              256,
+              192
+            ],
+            [
+              3,
+              2,
+              512,
+              384
+            ],
+            [
+              3,
+              4,
+              256,
+              192
+            ]
+          ]
+        }
+      },
+      "base_pixels_metadata_preserved": true
+    },
+    "seconds": 0.984
+  },
+  {
+    "test": "rebuild existing external overviews",
+    "outcome": "PASS",
+    "details": {
+      "files": 9,
+      "all_old_sidecars_replaced": true,
+      "different_resampling_changed_all_outputs": true
+    },
+    "seconds": 0.406
+  },
+  {
+    "test": "analytic pixels and NoData",
+    "outcome": "PASS",
+    "details": {
+      "average": {
+        "interior_plane_error": 0.0,
+        "nodata_cells": 784
+      },
+      "bilinear": {
+        "interior_plane_error": 0.0,
+        "nodata_cells": 784
+      }
+    },
+    "seconds": 0.641
+  },
+  {
+    "test": "odd/narrow dimensions and explicit factors",
+    "outcome": "PASS",
+    "details": {
+      "narrow.GEOTIFF": {
+        "pixels_compared": 899,
+        "dimensions": [
+          [
+            1,
+            2,
+            1,
+            513
+          ],
+          [
+            1,
+            4,
+            1,
+            257
+          ],
+          [
+            1,
+            8,
+            1,
+            129
+          ]
+        ]
+      },
+      "odd.tiff": {
+        "pixels_compared": 256182,
+        "dimensions": [
+          [
+            1,
+            2,
+            501,
+            389
+          ],
+          [
+            1,
+            4,
+            251,
+            195
+          ],
+          [
+            1,
+            8,
+            126,
+            98
+          ]
+        ]
+      }
+    },
+    "seconds": 0.375
+  },
+  {
+    "test": "keep internal and small preservation",
+    "outcome": "PASS",
+    "details": [
+      {
+        "path": "<TEST_ROOT>\\run-corrected-20260924-123816\\keep\\small.tif",
+        "source_bytes": 1202,
+        "status": "skipped",
+        "levels": [],
+        "internal_overviews_removed": false,
+        "deleted_sidecars": [],
+        "overview_bytes": 0,
+        "error": null,
+        "warnings": [],
+        "width": 128,
+        "height": 64,
+        "bands": 1,
+        "reason": "Raster is at or below min_size; existing overviews retained",
+        "seconds": 0.0
+      },
+      {
+        "path": "<TEST_ROOT>\\run-corrected-20260924-123816\\keep\\embedded.tif",
+        "source_bytes": 22039,
+        "status": "skipped",
+        "levels": [
+          2,
+          4
+        ],
+        "internal_overviews_removed": false,
+        "deleted_sidecars": [],
+        "overview_bytes": 0,
+        "error": null,
+        "warnings": [],
+        "width": 1024,
+        "height": 768,
+        "bands": 1,
+        "had_internal_overviews": true,
+        "reason": "Embedded overviews present and remove_internal=False",
+        "seconds": 0.0
+      }
+    ],
+    "seconds": 0.297
+  },
+  {
+    "test": "corrupt input isolation",
+    "outcome": "PASS",
+    "details": [
+      {
+        "path": "<TEST_ROOT>\\run-corrected-20260924-123816\\corrupt\\broken.tif",
+        "source_bytes": 23,
+        "status": "failed",
+        "levels": [],
+        "internal_overviews_removed": false,
+        "deleted_sidecars": [],
+        "overview_bytes": 0,
+        "error": "Cannot open as a GeoTIFF",
+        "warnings": [],
+        "seconds": 0.0
+      },
+      {
+        "path": "<TEST_ROOT>\\run-corrected-20260924-123816\\corrupt\\healthy.tif",
+        "source_bytes": 15922,
+        "status": "ok",
+        "levels": [
+          2,
+          4
+        ],
+        "internal_overviews_removed": false,
+        "deleted_sidecars": [],
+        "overview_bytes": 9546,
+        "error": null,
+        "warnings": [],
+        "width": 1024,
+        "height": 768,
+        "bands": 1,
+        "had_internal_overviews": false,
+        "estimated_output_bytes": 17530880,
+        "existing_sidecars": [],
+        "seconds": 0.015
+      }
+    ],
+    "seconds": 0.328
+  },
+  {
+    "test": "two parallel workers",
+    "outcome": "PASS",
+    "details": {
+      "configured_workers": 2,
+      "observed_active_2": true,
+      "files": 3,
+      "elapsed": 0.83
+    },
+    "seconds": 2.578
+  },
+  {
+    "test": "native CLI Ctrl+C cancellation",
+    "outcome": "PASS",
+    "details": {
+      "exit_code": 130,
+      "observed_partial_outputs_before_signal": [
+        "cancel-0.tif.ovr",
+        "cancel-1.tif.ovr"
+      ],
+      "summary": {
+        "phase": "cancelled",
+        "total": 4,
+        "completed": 4,
+        "counts": {
+          "cancelled": 4
+        },
+        "active": 0,
+        "active_files": {},
+        "total_source_bytes": 268575400,
+        "progress_percent": 0.0,
+        "estimated_output_bytes": 136354200,
+        "output_bytes": 0,
+        "elapsed_seconds": 0.3,
+        "eta_seconds": null,
+        "source_equivalent_mib_per_second": null,
+        "cancel_requested": true,
+        "fatal_error": null,
+        "log_path": "<TEST_ROOT>\\run-corrected-20260924-123816\\cli-logs\\cancel\\20260924-123827-388c8026.log",
+        "results_path": "<TEST_ROOT>\\run-corrected-20260924-123816\\cli-logs\\cancel\\20260924-123827-388c8026.results.jsonl",
+        "summary_path": "<TEST_ROOT>\\run-corrected-20260924-123816\\cli-logs\\cancel\\20260924-123827-388c8026.summary.json",
+        "options": {
+          "resampling": "bilinear",
+          "workers": 2,
+          "storage": "auto",
+          "threads_per_file": 1,
+          "levels": null,
+          "min_size": 256,
+          "compression": "DEFLATE",
+          "compression_level": 9,
+          "bigtiff": "YES",
+          "remove_internal": true,
+          "dry_run": false,
+          "progress_interval": 0.5,
+          "min_free_gb": 1.0
+        },
+        "version": "1.0.0",
+        "gdal": "3.13.1",
+        "directory": "<TEST_ROOT>\\run-corrected-20260924-123816\\cancel",
+        "run_id": "20260924-123827-388c8026"
+      },
+      "files": [
+        {
+          "path": "<TEST_ROOT>\\run-corrected-20260924-123816\\cancel\\cancel-0.tif",
+          "source_bytes": 67143850,
+          "status": "cancelled",
+          "levels": [
+            2,
+            4,
+            8,
+            16,
+            32
+          ],
+          "internal_overviews_removed": false,
+          "deleted_sidecars": [],
+          "overview_bytes": 0,
+          "error": "Cancellation requested",
+          "warnings": [],
+          "width": 8192,
+          "height": 8192,
+          "bands": 1,
+          "had_internal_overviews": false,
+          "estimated_output_bytes": 68177100,
+          "existing_sidecars": [],
+          "partial_output_deleted": [
+            "<TEST_ROOT>\\run-corrected-20260924-123816\\cancel\\cancel-0.tif.ovr"
+          ],
+          "seconds": 0.266
+        },
+        {
+          "path": "<TEST_ROOT>\\run-corrected-20260924-123816\\cancel\\cancel-1.tif",
+          "source_bytes": 67143850,
+          "status": "cancelled",
+          "levels": [
+            2,
+            4,
+            8,
+            16,
+            32
+          ],
+          "internal_overviews_removed": false,
+          "deleted_sidecars": [],
+          "overview_bytes": 0,
+          "error": "Cancellation requested",
+          "warnings": [],
+          "width": 8192,
+          "height": 8192,
+          "bands": 1,
+          "had_internal_overviews": false,
+          "estimated_output_bytes": 68177100,
+          "existing_sidecars": [],
+          "partial_output_deleted": [
+            "<TEST_ROOT>\\run-corrected-20260924-123816\\cancel\\cancel-1.tif.ovr"
+          ],
+          "seconds": 0.282
+        },
+        {
+          "path": "<TEST_ROOT>\\run-corrected-20260924-123816\\cancel\\cancel-2.tif",
+          "source_bytes": 67143850,
+          "status": "cancelled",
+          "error": "Not started: cancellation requested"
+        },
+        {
+          "path": "<TEST_ROOT>\\run-corrected-20260924-123816\\cancel\\cancel-3.tif",
+          "source_bytes": 67143850,
+          "status": "cancelled",
+          "error": "Not started: cancellation requested"
+        }
+      ]
+    },
+    "seconds": 4.844
+  },
+  {
+    "test": "invalid CLI arguments",
+    "outcome": "PASS",
+    "details": {
+      "exit_code": 2
+    },
+    "seconds": 0.297
+  }
+]

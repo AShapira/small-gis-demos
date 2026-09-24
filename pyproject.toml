@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "small-gis-demos"
+version = "0.1.0"
+description = "Small GIS demonstrations: GeoServer raster benchmarks and GeoTIFF overview generation"
+requires-python = ">=3.11"
+dependencies = ["PyYAML==6.0.2"]
+
+[project.scripts]
+rasterbench = "rasterbench.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["rasterbench*"]

@@ -1,0 +1,266 @@
+{
+  "dataset": "synthetic 2048x2048 RGB fixture",
+  "performance_ranking": false,
+  "results": {
+    "cog_deflate": {
+      "cases": [
+        {
+          "bytes": 473868,
+          "http_status": 200,
+          "scale": 1
+        },
+        {
+          "bytes": 571834,
+          "http_status": 200,
+          "scale": 0.25
+        },
+        {
+          "bytes": 34025,
+          "http_status": 200,
+          "scale": 0.025
+        }
+      ],
+      "compression": "DEFLATE",
+      "driver": "COG",
+      "server_version": "3.0.1",
+      "stage": "GeoServer WMS",
+      "supported": true
+    },
+    "cog_jpeg80": {
+      "cases": [
+        {
+          "bytes": 389153,
+          "http_status": 200,
+          "scale": 1
+        },
+        {
+          "bytes": 447018,
+          "http_status": 200,
+          "scale": 0.25
+        },
+        {
+          "bytes": 31091,
+          "http_status": 200,
+          "scale": 0.025
+        }
+      ],
+      "compression": "JPEG",
+      "driver": "COG",
+      "server_version": "3.0.1",
+      "stage": "GeoServer WMS",
+      "supported": true
+    },
+    "deflate": {
+      "cases": [
+        {
+          "bytes": 473868,
+          "http_status": 200,
+          "scale": 1
+        },
+        {
+          "bytes": 571834,
+          "http_status": 200,
+          "scale": 0.25
+        },
+        {
+          "bytes": 34025,
+          "http_status": 200,
+          "scale": 0.025
+        }
+      ],
+      "compression": "DEFLATE",
+      "driver": "GTiff",
+      "server_version": "3.0.1",
+      "stage": "GeoServer WMS",
+      "supported": true
+    },
+    "gpkg_jpeg80": {
+      "reason": "Non-image response: Raster ByteInterleavedRaster: width = 512 height = 512 #numDataElements 3 dataOff[0] = 2 has minX or minY not equal to zero: 512 0",
+      "stage": "GeoServer WMS",
+      "supported": false
+    },
+    "gpkg_png": {
+      "reason": "Non-image response: Raster ByteInterleavedRaster: width = 512 height = 512 #numDataElements 3 dataOff[0] = 2 has minX or minY not equal to zero: 512 0",
+      "stage": "GeoServer WMS",
+      "supported": false
+    },
+    "jpeg70": {
+      "cases": [
+        {
+          "bytes": 385886,
+          "http_status": 200,
+          "scale": 1
+        },
+        {
+          "bytes": 409716,
+          "http_status": 200,
+          "scale": 0.25
+        },
+        {
+          "bytes": 30877,
+          "http_status": 200,
+          "scale": 0.025
+        }
+      ],
+      "compression": "JPEG",
+      "driver": "GTiff",
+      "server_version": "3.0.1",
+      "stage": "GeoServer WMS",
+      "supported": true
+    },
+    "jpeg80": {
+      "cases": [
+        {
+          "bytes": 389153,
+          "http_status": 200,
+          "scale": 1
+        },
+        {
+          "bytes": 447018,
+          "http_status": 200,
+          "scale": 0.25
+        },
+        {
+          "bytes": 31091,
+          "http_status": 200,
+          "scale": 0.025
+        }
+      ],
+      "compression": "JPEG",
+      "driver": "GTiff",
+      "server_version": "3.0.1",
+      "stage": "GeoServer WMS",
+      "supported": true
+    },
+    "lzw": {
+      "cases": [
+        {
+          "bytes": 473868,
+          "http_status": 200,
+          "scale": 1
+        },
+        {
+          "bytes": 571834,
+          "http_status": 200,
+          "scale": 0.25
+        },
+        {
+          "bytes": 34025,
+          "http_status": 200,
+          "scale": 0.025
+        }
+      ],
+      "compression": "LZW",
+      "driver": "GTiff",
+      "server_version": "3.0.1",
+      "stage": "GeoServer WMS",
+      "supported": true
+    },
+    "none": {
+      "cases": [
+        {
+          "bytes": 473868,
+          "http_status": 200,
+          "scale": 1
+        },
+        {
+          "bytes": 571834,
+          "http_status": 200,
+          "scale": 0.25
+        },
+        {
+          "bytes": 34025,
+          "http_status": 200,
+          "scale": 0.025
+        }
+      ],
+      "compression": "NONE",
+      "driver": "GTiff",
+      "server_version": "3.0.1",
+      "stage": "GeoServer WMS",
+      "supported": true
+    },
+    "packbits": {
+      "cases": [
+        {
+          "bytes": 473868,
+          "http_status": 200,
+          "scale": 1
+        },
+        {
+          "bytes": 571834,
+          "http_status": 200,
+          "scale": 0.25
+        },
+        {
+          "bytes": 34025,
+          "http_status": 200,
+          "scale": 0.025
+        }
+      ],
+      "compression": "PACKBITS",
+      "driver": "GTiff",
+      "server_version": "3.0.1",
+      "stage": "GeoServer WMS",
+      "supported": true
+    },
+    "webp_gpkg": {
+      "reason": "Non-image response: Raster IntegerInterleavedRaster: width = 512 height = 512 #Bands = 3 xOff = 512 yOff = 0 dataOffset[0] 0 has minX or minY not equal to zero: 512 0",
+      "stage": "GeoServer WMS",
+      "supported": false
+    },
+    "webp_tiff": {
+      "reason": "Non-image response: javax.imageio.IIOException: Unsupported compression type (tag number = 50001)! Unsupported compression type (tag number = 50001)!",
+      "stage": "GeoServer WMS",
+      "supported": false
+    },
+    "zstd3": {
+      "cases": [
+        {
+          "bytes": 473868,
+          "http_status": 200,
+          "scale": 1
+        },
+        {
+          "bytes": 571834,
+          "http_status": 200,
+          "scale": 0.25
+        },
+        {
+          "bytes": 34025,
+          "http_status": 200,
+          "scale": 0.025
+        }
+      ],
+      "compression": "ZSTD",
+      "driver": "GTiff",
+      "server_version": "3.0.1",
+      "stage": "GeoServer WMS",
+      "supported": true
+    },
+    "zstd9": {
+      "cases": [
+        {
+          "bytes": 473868,
+          "http_status": 200,
+          "scale": 1
+        },
+        {
+          "bytes": 571834,
+          "http_status": 200,
+          "scale": 0.25
+        },
+        {
+          "bytes": 34025,
+          "http_status": 200,
+          "scale": 0.025
+        }
+      ],
+      "compression": "ZSTD",
+      "driver": "GTiff",
+      "server_version": "3.0.1",
+      "stage": "GeoServer WMS",
+      "supported": true
+    }
+  }
+}

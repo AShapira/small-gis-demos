@@ -1,0 +1,17 @@
+{
+  "profile": "webp",
+  "geoserver_version": "3.0.1",
+  "artifacts": {
+    "gs-webp-3.0.1.jar": {
+      "url": "https://repo.osgeo.org/repository/release/org/geoserver/community/gs-webp/3.0.1/gs-webp-3.0.1.jar",
+      "sha256": "fdae74c1ffdf205b263d12e324e2761aaf0b7486f954348a608fe02e7b439f2e"
+    },
+    "webp-imageio-0.2.2.jar": {
+      "url": "https://repo.maven.apache.org/maven2/com/github/gotson/webp-imageio/0.2.2/webp-imageio-0.2.2.jar",
+      "sha256": "65b33d440f818e075c5a45aef74bc4d0298e49914371b434944487dddcde486a"
+    }
+  },
+  "image": "localhost/rasterbench-geoserver-webp:3.0.1",
+  "image_id": "4858a1f997854c37fe531507b65c4723db1f58ed24ec2c54867f32d0c86e10a4",
+  "base_image": "docker.osgeo.org/geoserver@sha256:7cb827ba3f6d9fc04a6647fc0cfa6c254fc642407f0d99281fdf026d2540b558"
+}

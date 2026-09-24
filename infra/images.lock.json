@@ -1,0 +1,20 @@
+{
+  "gdal_image": "ghcr.io/osgeo/gdal@sha256:1e450ff0e12140dc72c2ad6ff3978c96ea910187ec3ec4281a814f470606412c",
+  "downloader_commit": "ae22a599ef56d2d17344882c9b77658242f32643",
+  "downloader_files": {
+    "copernicus_downloader.py": {
+      "url": "https://raw.githubusercontent.com/AShapira/copernicus-downloader/ae22a599ef56d2d17344882c9b77658242f32643/copernicus_downloader.py",
+      "sha256": "ab25a6fdcfc0a0f429e267006bf8ab4fa68e5243e8d3167ff005cfba6a490912"
+    },
+    "copernicus_visible_vrt.py": {
+      "url": "https://raw.githubusercontent.com/AShapira/copernicus-downloader/ae22a599ef56d2d17344882c9b77658242f32643/copernicus_visible_vrt.py",
+      "sha256": "1e384450749f0dc559ba281e35c8d61cc323c5842b83114c53bdecca408bde4b"
+    },
+    "LICENSE": {
+      "url": "https://raw.githubusercontent.com/AShapira/copernicus-downloader/ae22a599ef56d2d17344882c9b77658242f32643/LICENSE",
+      "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"
+    }
+  },
+  "geoserver_image": "docker.osgeo.org/geoserver@sha256:7cb827ba3f6d9fc04a6647fc0cfa6c254fc642407f0d99281fdf026d2540b558",
+  "worker_image_id": "4cfb43a4c5d3fbf86fdbcd4a492d3437291df258f693397bd749e52bcfdfbff2"
+}

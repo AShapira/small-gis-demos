@@ -1,0 +1,94 @@
+{
+  "mode": "QCoreApplication with actual PyQGIS, GDAL, and QTimer; no GUI widget",
+  "ticks": 16,
+  "tests": [
+    {
+      "test": "wrong-thread start rejection",
+      "outcome": "PASS",
+      "error": "start() must run on the QGIS GUI thread; use run() outside QGIS"
+    },
+    {
+      "test": "start build, dimensions/pixels, queued print, timer cleanup",
+      "outcome": "PASS",
+      "status": {
+        "phase": "finished",
+        "total": 1,
+        "completed": 1,
+        "counts": {
+          "ok": 1
+        },
+        "active": 0,
+        "active_files": {},
+        "total_source_bytes": 787154,
+        "progress_percent": 100.0,
+        "estimated_output_bytes": 17530880,
+        "output_bytes": 2097,
+        "elapsed_seconds": 0.02,
+        "eta_seconds": 0.0,
+        "source_equivalent_mib_per_second": null,
+        "cancel_requested": false,
+        "fatal_error": null,
+        "log_path": "<TEST_ROOT>\\start-api-20260924-124145\\generated\\overview-generator-logs\\20260924-124145-1a02c35d.log",
+        "results_path": "<TEST_ROOT>\\start-api-20260924-124145\\generated\\overview-generator-logs\\20260924-124145-1a02c35d.results.jsonl",
+        "summary_path": "<TEST_ROOT>\\start-api-20260924-124145\\generated\\overview-generator-logs\\20260924-124145-1a02c35d.summary.json",
+        "options": {
+          "resampling": "bilinear",
+          "workers": 2,
+          "storage": "auto",
+          "threads_per_file": 1,
+          "levels": null,
+          "min_size": 256,
+          "compression": "DEFLATE",
+          "compression_level": 1,
+          "bigtiff": "YES",
+          "remove_internal": true,
+          "dry_run": false,
+          "progress_interval": 0.5,
+          "min_free_gb": 1.0
+        }
+      }
+    },
+    {
+      "test": "start cancellation and cleanup",
+      "outcome": "PASS",
+      "status": {
+        "phase": "cancelled",
+        "total": 0,
+        "completed": 0,
+        "counts": {},
+        "active": 0,
+        "active_files": {},
+        "total_source_bytes": 0,
+        "progress_percent": 0.0,
+        "estimated_output_bytes": 0,
+        "output_bytes": 0,
+        "elapsed_seconds": 0.02,
+        "eta_seconds": null,
+        "source_equivalent_mib_per_second": null,
+        "cancel_requested": true,
+        "fatal_error": null,
+        "log_path": "<TEST_ROOT>\\start-api-20260924-124145\\generated\\overview-generator-logs\\20260924-124145-704a565e.log",
+        "results_path": "<TEST_ROOT>\\start-api-20260924-124145\\generated\\overview-generator-logs\\20260924-124145-704a565e.results.jsonl",
+        "summary_path": "<TEST_ROOT>\\start-api-20260924-124145\\generated\\overview-generator-logs\\20260924-124145-704a565e.summary.json",
+        "options": {
+          "resampling": "bilinear",
+          "workers": 2,
+          "storage": "auto",
+          "threads_per_file": 1,
+          "levels": null,
+          "min_size": 256,
+          "compression": "DEFLATE",
+          "compression_level": 1,
+          "bigtiff": "YES",
+          "remove_internal": true,
+          "dry_run": false,
+          "progress_interval": 5.0,
+          "min_free_gb": 1.0
+        }
+      }
+    }
+  ],
+  "start_return_seconds": 0.125,
+  "passed": true,
+  "printed_on_main_thread_only": true
+}

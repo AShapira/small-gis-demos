@@ -1,0 +1,341 @@
+{
+  "qgis": "4.2.0-Bel\u00e9m do Par\u00e1",
+  "mode": "standalone QgsApplication with real QGIS console widget",
+  "pid": 30576,
+  "tests": [
+    {
+      "test": "loaded-layer real-run refusal",
+      "outcome": "PASS",
+      "message": "Remove target TIFF layers from the QGIS project before rebuilding their overviews (1 loaded; e.g. constant-0.tif). dry_run=True is allowed."
+    },
+    {
+      "test": "start returns without blocking",
+      "outcome": "PASS",
+      "return_seconds": 0.0
+    },
+    {
+      "test": "loaded-layer dry run and Qt timer cleanup",
+      "outcome": "PASS",
+      "status": {
+        "phase": "finished",
+        "total": 2,
+        "completed": 2,
+        "counts": {
+          "planned": 2
+        },
+        "active": 0,
+        "active_files": {},
+        "total_source_bytes": 48148,
+        "progress_percent": 100.0,
+        "estimated_output_bytes": 59179006,
+        "output_bytes": 0,
+        "elapsed_seconds": 0.0,
+        "eta_seconds": 0.0,
+        "source_equivalent_mib_per_second": null,
+        "cancel_requested": false,
+        "fatal_error": null,
+        "log_path": "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\overview-generator-logs\\20260924-124147-9e6114e3.log",
+        "results_path": "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\overview-generator-logs\\20260924-124147-9e6114e3.results.jsonl",
+        "summary_path": "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\overview-generator-logs\\20260924-124147-9e6114e3.summary.json",
+        "options": {
+          "resampling": "bilinear",
+          "workers": 2,
+          "storage": "auto",
+          "threads_per_file": 1,
+          "levels": null,
+          "min_size": 256,
+          "compression": "DEFLATE",
+          "compression_level": 1,
+          "bigtiff": "YES",
+          "remove_internal": true,
+          "dry_run": true,
+          "progress_interval": 0.5,
+          "min_free_gb": 1.0
+        }
+      }
+    },
+    {
+      "test": "GUI start builds real external overviews",
+      "outcome": "PASS",
+      "status": {
+        "phase": "finished",
+        "total": 2,
+        "completed": 2,
+        "counts": {
+          "ok": 2
+        },
+        "active": 0,
+        "active_files": {},
+        "total_source_bytes": 48148,
+        "progress_percent": 100.0,
+        "estimated_output_bytes": 59179006,
+        "output_bytes": 56216,
+        "elapsed_seconds": 0.19,
+        "eta_seconds": 0.0,
+        "source_equivalent_mib_per_second": null,
+        "cancel_requested": false,
+        "fatal_error": null,
+        "log_path": "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\overview-generator-logs\\20260924-124147-6de2acd7.log",
+        "results_path": "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\overview-generator-logs\\20260924-124147-6de2acd7.results.jsonl",
+        "summary_path": "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\overview-generator-logs\\20260924-124147-6de2acd7.summary.json",
+        "options": {
+          "resampling": "bilinear",
+          "workers": 2,
+          "storage": "auto",
+          "threads_per_file": 1,
+          "levels": null,
+          "min_size": 256,
+          "compression": "DEFLATE",
+          "compression_level": 1,
+          "bigtiff": "YES",
+          "remove_internal": true,
+          "dry_run": false,
+          "progress_interval": 0.5,
+          "min_free_gb": 1.0
+        }
+      },
+      "all_pixels_constant": true
+    },
+    {
+      "test": "actual Python console updates",
+      "outcome": "PASS",
+      "characters": 3211,
+      "heartbeat": 10
+    },
+    {
+      "test": "global GDAL settings and live-job cleanup preserved",
+      "outcome": "PASS"
+    },
+    {
+      "test": "GUI job.cancel and timer cleanup",
+      "outcome": "PASS",
+      "status": {
+        "phase": "cancelled",
+        "total": 0,
+        "completed": 0,
+        "counts": {},
+        "active": 0,
+        "active_files": {},
+        "total_source_bytes": 0,
+        "progress_percent": 0.0,
+        "estimated_output_bytes": 0,
+        "output_bytes": 0,
+        "elapsed_seconds": 0.0,
+        "eta_seconds": null,
+        "source_equivalent_mib_per_second": null,
+        "cancel_requested": true,
+        "fatal_error": null,
+        "log_path": "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\overview-generator-logs\\20260924-124147-6b09d420.log",
+        "results_path": "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\overview-generator-logs\\20260924-124147-6b09d420.results.jsonl",
+        "summary_path": "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\overview-generator-logs\\20260924-124147-6b09d420.summary.json",
+        "options": {
+          "resampling": "bilinear",
+          "workers": 2,
+          "storage": "auto",
+          "threads_per_file": 1,
+          "levels": null,
+          "min_size": 256,
+          "compression": "DEFLATE",
+          "compression_level": 1,
+          "bigtiff": "YES",
+          "remove_internal": true,
+          "dry_run": false,
+          "progress_interval": 0.5,
+          "min_free_gb": 1.0
+        }
+      }
+    }
+  ],
+  "heartbeat": 15,
+  "snapshots": [
+    {
+      "phase": "processing",
+      "total": 2,
+      "completed": 0,
+      "counts": {},
+      "active": 2,
+      "active_files": {
+        "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\constant-0.tif": 0.0,
+        "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\constant-1.tif": 0.0
+      },
+      "total_source_bytes": 48148,
+      "progress_percent": 0.0,
+      "estimated_output_bytes": 0,
+      "output_bytes": 0,
+      "elapsed_seconds": 0.05,
+      "eta_seconds": null,
+      "source_equivalent_mib_per_second": null,
+      "cancel_requested": false,
+      "fatal_error": null,
+      "log_path": "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\overview-generator-logs\\20260924-124147-6de2acd7.log",
+      "results_path": "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\overview-generator-logs\\20260924-124147-6de2acd7.results.jsonl",
+      "summary_path": "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\overview-generator-logs\\20260924-124147-6de2acd7.summary.json",
+      "options": {
+        "resampling": "bilinear",
+        "workers": 2,
+        "storage": "auto",
+        "threads_per_file": 1,
+        "levels": null,
+        "min_size": 256,
+        "compression": "DEFLATE",
+        "compression_level": 1,
+        "bigtiff": "YES",
+        "remove_internal": true,
+        "dry_run": false,
+        "progress_interval": 0.5,
+        "min_free_gb": 1.0
+      }
+    },
+    {
+      "phase": "processing",
+      "total": 2,
+      "completed": 0,
+      "counts": {},
+      "active": 2,
+      "active_files": {
+        "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\constant-0.tif": 0.0,
+        "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\constant-1.tif": 0.0
+      },
+      "total_source_bytes": 48148,
+      "progress_percent": 0.0,
+      "estimated_output_bytes": 0,
+      "output_bytes": 0,
+      "elapsed_seconds": 0.11,
+      "eta_seconds": null,
+      "source_equivalent_mib_per_second": null,
+      "cancel_requested": false,
+      "fatal_error": null,
+      "log_path": "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\overview-generator-logs\\20260924-124147-6de2acd7.log",
+      "results_path": "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\overview-generator-logs\\20260924-124147-6de2acd7.results.jsonl",
+      "summary_path": "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\overview-generator-logs\\20260924-124147-6de2acd7.summary.json",
+      "options": {
+        "resampling": "bilinear",
+        "workers": 2,
+        "storage": "auto",
+        "threads_per_file": 1,
+        "levels": null,
+        "min_size": 256,
+        "compression": "DEFLATE",
+        "compression_level": 1,
+        "bigtiff": "YES",
+        "remove_internal": true,
+        "dry_run": false,
+        "progress_interval": 0.5,
+        "min_free_gb": 1.0
+      }
+    },
+    {
+      "phase": "processing",
+      "total": 2,
+      "completed": 0,
+      "counts": {},
+      "active": 2,
+      "active_files": {
+        "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\constant-0.tif": 0.0,
+        "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\constant-1.tif": 0.0
+      },
+      "total_source_bytes": 48148,
+      "progress_percent": 0.0,
+      "estimated_output_bytes": 0,
+      "output_bytes": 0,
+      "elapsed_seconds": 0.17,
+      "eta_seconds": null,
+      "source_equivalent_mib_per_second": null,
+      "cancel_requested": false,
+      "fatal_error": null,
+      "log_path": "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\overview-generator-logs\\20260924-124147-6de2acd7.log",
+      "results_path": "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\overview-generator-logs\\20260924-124147-6de2acd7.results.jsonl",
+      "summary_path": "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\overview-generator-logs\\20260924-124147-6de2acd7.summary.json",
+      "options": {
+        "resampling": "bilinear",
+        "workers": 2,
+        "storage": "auto",
+        "threads_per_file": 1,
+        "levels": null,
+        "min_size": 256,
+        "compression": "DEFLATE",
+        "compression_level": 1,
+        "bigtiff": "YES",
+        "remove_internal": true,
+        "dry_run": false,
+        "progress_interval": 0.5,
+        "min_free_gb": 1.0
+      }
+    },
+    {
+      "phase": "finished",
+      "total": 2,
+      "completed": 2,
+      "counts": {
+        "ok": 2
+      },
+      "active": 0,
+      "active_files": {},
+      "total_source_bytes": 48148,
+      "progress_percent": 100.0,
+      "estimated_output_bytes": 59179006,
+      "output_bytes": 56216,
+      "elapsed_seconds": 0.19,
+      "eta_seconds": 0.0,
+      "source_equivalent_mib_per_second": null,
+      "cancel_requested": false,
+      "fatal_error": null,
+      "log_path": "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\overview-generator-logs\\20260924-124147-6de2acd7.log",
+      "results_path": "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\overview-generator-logs\\20260924-124147-6de2acd7.results.jsonl",
+      "summary_path": "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\overview-generator-logs\\20260924-124147-6de2acd7.summary.json",
+      "options": {
+        "resampling": "bilinear",
+        "workers": 2,
+        "storage": "auto",
+        "threads_per_file": 1,
+        "levels": null,
+        "min_size": 256,
+        "compression": "DEFLATE",
+        "compression_level": 1,
+        "bigtiff": "YES",
+        "remove_internal": true,
+        "dry_run": false,
+        "progress_interval": 0.5,
+        "min_free_gb": 1.0
+      }
+    },
+    {
+      "phase": "finished",
+      "total": 2,
+      "completed": 2,
+      "counts": {
+        "ok": 2
+      },
+      "active": 0,
+      "active_files": {},
+      "total_source_bytes": 48148,
+      "progress_percent": 100.0,
+      "estimated_output_bytes": 59179006,
+      "output_bytes": 56216,
+      "elapsed_seconds": 0.19,
+      "eta_seconds": 0.0,
+      "source_equivalent_mib_per_second": null,
+      "cancel_requested": false,
+      "fatal_error": null,
+      "log_path": "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\overview-generator-logs\\20260924-124147-6de2acd7.log",
+      "results_path": "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\overview-generator-logs\\20260924-124147-6de2acd7.results.jsonl",
+      "summary_path": "<TEST_ROOT>\\gui-corrected-20260924-124145\\generated\\overview-generator-logs\\20260924-124147-6de2acd7.summary.json",
+      "options": {
+        "resampling": "bilinear",
+        "workers": 2,
+        "storage": "auto",
+        "threads_per_file": 1,
+        "levels": null,
+        "min_size": 256,
+        "compression": "DEFLATE",
+        "compression_level": 1,
+        "bigtiff": "YES",
+        "remove_internal": true,
+        "dry_run": false,
+        "progress_interval": 0.5,
+        "min_free_gb": 1.0
+      }
+    }
+  ],
+  "elapsed": 2.187999999998283
+}

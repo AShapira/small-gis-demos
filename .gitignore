@@ -1,0 +1,16 @@
+.runs/
+.build/
+.secrets/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+*.egg-info/
+dist/
+build/
+results/
+.validation/
+/overview-generator-validation/
+/CURRENT_STATUS.md
+/PAUSE_STATUS.md
+/FINALIZATION.md

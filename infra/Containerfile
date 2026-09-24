@@ -1,0 +1,18 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
+    GDAL_CACHEMAX=512 GDAL_NUM_THREADS=4 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 \
+    PATH=/opt/venv/bin:$PATH PYTHONPATH=/app:/opt/copernicus MPLCONFIGDIR=/tmp/matplotlib
+RUN apt-get update && apt-get install -y --no-install-recommends python3-venv time ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && python3 -m venv --system-site-packages /opt/venv
+COPY infra/requirements.lock.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt \
+    && pip check && pip freeze > /opt/python-lock.txt && dpkg-query -W > /opt/os-packages.txt
+COPY .build/copernicus /opt/copernicus
+COPY rasterbench /app/rasterbench
+COPY tests /app/tests
+COPY scripts /app/scripts
+COPY configs /app/configs
+WORKDIR /app
+ENTRYPOINT ["python", "-m", "rasterbench.worker"]

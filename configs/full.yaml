@@ -1,0 +1,92 @@
+schema_version: 1
+study_id: israel-rgb-5gb
+runtime:
+  connection: podman-machine-default
+  machine: podman-machine-default
+  prefix: rasterbench
+  port: 18085
+  worker_image: localhost/rasterbench-worker:0.1.0
+  geoserver_image: docker.osgeo.org/geoserver@sha256:7cb827ba3f6d9fc04a6647fc0cfa6c254fc642407f0d99281fdf026d2540b558
+  export_dir: C:/GIS/benchmark-results
+  disk_budget_gb: 150
+  disk_reserve_gb: 30
+  worker_cpus: 4
+  worker_memory_gib: 8
+  load_cpus: 2
+  load_memory_gib: 3
+source:
+  start_date: '2026-06-01'
+  end_date: '2026-08-31'
+  bbox: [34.0, 28.5, 38.5, 34.0]
+  concurrency: 3
+  selection: lowest-cloud-per-tile
+  max_products: 48
+  downloader_commit: ae22a599ef56d2d17344882c9b77658242f32643
+raster:
+  crs: EPSG:32636
+  bounds: [650000, 3200000, 977680, 3722240]
+  resolution: 10
+  minimum_valid_bytes: 5000000000
+  maximum_nodata_fraction: 0.02
+  block_size: 512
+  overviews: [2, 4, 8, 16, 32, 64]
+  threads: 4
+  quality_sample_count: 48
+variants:
+  - {id: none, driver: GTiff, compression: NONE, lossless: true}
+  - {id: lzw, driver: GTiff, compression: LZW, predictor: 2, lossless: true}
+  - {id: deflate, driver: GTiff, compression: DEFLATE, level: 6, predictor: 2, lossless: true}
+  - {id: packbits, driver: GTiff, compression: PACKBITS, lossless: true}
+  - {id: jpeg70, driver: GTiff, compression: JPEG, quality: 70, lossless: false}
+  - {id: jpeg80, driver: GTiff, compression: JPEG, quality: 80, lossless: false}
+  - {id: zstd3, driver: GTiff, compression: ZSTD, level: 3, predictor: 2, lossless: true}
+  - {id: zstd9, driver: GTiff, compression: ZSTD, level: 9, predictor: 2, lossless: true}
+  - {id: cog_deflate, driver: COG, compression: DEFLATE, level: 6, predictor: 2, lossless: true, layout_comparison: true}
+  - {id: cog_jpeg80, driver: COG, compression: JPEG, quality: 80, lossless: false, layout_comparison: true}
+  - {id: gpkg_png, driver: GPKG, compression: PNG, lossless: true, layout_comparison: true}
+  - {id: gpkg_jpeg80, driver: GPKG, compression: JPEG, quality: 80, lossless: false, layout_comparison: true}
+  - {id: webp_tiff, driver: GTiff, compression: WEBP, quality: 80, lossless: false, experimental: true}
+  - {id: webp_gpkg, driver: GPKG, compression: WEBP, quality: 80, lossless: false, experimental: true, layout_comparison: true}
+workload:
+  seed: 20260915
+  max_users: 100
+  user_levels: [1, 10, 25, 50, 100]
+  viewport: [1024, 768]
+  tile_size: 256
+  parallel_tiles: 6
+  think_seconds: [3, 8]
+  zooms: [9, 10, 11, 12, 13, 14]
+  metatile: 4
+  mixed_seed_fraction: 0.8
+  request_timeout: 30
+  warmup_seconds: 60
+  measurement_seconds: 300
+  max_views_per_user: 128
+  output_format: image/png
+  regions:
+    - {name: urban, lon: 34.9, lat: 32.0}
+    - {name: agriculture, lon: 35.3, lat: 32.5}
+    - {name: desert, lon: 35.0, lat: 30.7}
+    - {name: coast, lon: 34.85, lat: 32.15}
+    - {name: mountains, lon: 35.45, lat: 33.0}
+study:
+  scenarios: [hit, miss, mixed, wms]
+  screening_users: [1, 100]
+  screening_repetitions: 2
+  capacity_users: [25, 50, 100]
+  capacity_repetitions: 3
+  delivery: true
+  delivery_formats: [image/png, image/jpeg, image/webp]
+  profiles:
+    - {id: cpu2-mem4, cpus: 2, memory_gib: 4, heap_gib: 2}
+    - {id: cpu4-mem8, cpus: 4, memory_gib: 8, heap_gib: 4}
+    - {id: cpu8-mem16, cpus: 8, memory_gib: 16, heap_gib: 8}
+    - {id: cpu12-mem24, cpus: 12, memory_gib: 24, heap_gib: 12}
+  screening_profile: cpu8-mem16
+  first_access: true
+acceptance:
+  hit_view_p95_seconds: 2
+  render_view_p95_seconds: 5
+  max_view_error_fraction: 0.01
+  minimum_headroom_fraction: 0.25
+  minimum_hit_fraction: 0.99

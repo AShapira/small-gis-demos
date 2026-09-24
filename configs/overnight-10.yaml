@@ -1,0 +1,17 @@
+schema_version: 1
+plan_id: overnight-10
+source_config: configs/full.yaml
+users: 10
+morning_target: '2026-09-16T08:00:00+03:00'
+stop_at_target: false
+continue_until_stopped: true
+warmup_seconds: 60
+measurement_seconds: 120
+max_views_per_user: 48
+repetitions: 2
+screening_profile: cpu8-mem16
+core_capacity_profiles: [cpu4-mem8]
+extended_capacity_profiles: [cpu2-mem4, cpu8-mem16]
+endurance_measurement_seconds: 300
+endurance_max_views_per_user: 128
+report_every_cells: 8

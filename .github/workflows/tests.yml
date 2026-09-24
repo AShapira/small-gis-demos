@@ -1,0 +1,24 @@
+name: Tests
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-test.txt
+      - run: python scripts/fetch_test_dependency.py
+      - run: python -m unittest discover -s tests -v
+        env:
+          PYTHONPATH: .:.build/copernicus
+      - name: Parse standalone script with Python 3.7 grammar
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          ast.parse(Path('overview-generator/overview-generator.py').read_text(), feature_version=(3, 7))
+          PY

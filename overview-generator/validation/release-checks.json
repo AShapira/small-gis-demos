@@ -1,0 +1,16 @@
+{
+  "date": "2026-09-24",
+  "repository_version": "0.1.0",
+  "overview_script_sha256": "e8b340ad1fb0026c143b4eff327defd92c3d7bedcbc6a7ec2fe322268b67b5b6",
+  "relocated_windows_tests": {
+    "cli_passed": 12,
+    "cli_failed": 0,
+    "console_passed": 7,
+    "api_passed": 3
+  },
+  "benchmark_unit_tests": {
+    "passed": 25,
+    "failed": 0
+  },
+  "container_image_rebuild": false
+}

@@ -1,0 +1,22 @@
+{
+  "dataset": "synthetic 2048x2048 RGB fixture",
+  "performance_ranking": false,
+  "results": {
+    "image/jpeg": {
+      "bytes": 27306,
+      "gwc_supported": true,
+      "supported": true
+    },
+    "image/png": {
+      "bytes": 473868,
+      "gwc_supported": true,
+      "supported": true
+    },
+    "image/webp": {
+      "bytes": 31590,
+      "gwc_reason": "Non-image response: Unable to determine requested FORMAT, image/webp",
+      "gwc_supported": false,
+      "supported": true
+    }
+  }
+}
