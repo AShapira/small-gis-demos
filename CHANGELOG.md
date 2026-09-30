@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.0 — 2026-09-30
+
+- Add a standalone GeoTIFF merger for QGIS 4.2 with lossless compression,
+  target output sizes allowing up to 10% extra, and splitting based on actual
+  file sizes. Use available CPU/RAM with optional resource budgets.
+- Verify every valid source sample, validity masks, spatial coverage and core
+  metadata; hash sources before and after merging. Stop on conflicting overlaps
+  by default and report options, with explicit first/last priority available.
+- Provide an asynchronous QGIS Python-console API, usage documentation,
+  35 generated-data regression tests and a GDAL/NumPy CI job.
+- Record two successful Windows QGIS-bundled-Python runs on 5.135 GB of
+  Sentinel-derived input tiles, including independent full-reference comparisons.
+  Full desktop validation remains blocked by Windows Application Control;
+  RAM limits are planning budgets, not OS-enforced ceilings.
+
 ## 0.1.0 — 2026-09-24
 
 - Publish the existing GeoServer raster compression and WMS/WMTS benchmark,

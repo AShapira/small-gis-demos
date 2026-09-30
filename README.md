@@ -4,6 +4,7 @@ Practical GIS demonstrations with reproducible tests and documented limits.
 
 | Demo | Purpose | Start here |
 | --- | --- | --- |
+| GeoTIFF merge for QGIS 4.2 | Merge aligned rasters to a target size (+10% allowance), use available CPU/RAM with optional limits, and exhaustively verify pixels and masks. | [geotiff-merge/](geotiff-merge/README.md) |
 | GeoTIFF overview generator | Rebuild external overviews with GDAL, bounded parallelism, dry runs, logs and cooperative cancellation; CLI and QGIS Python-console entry points. | [overview-generator/](overview-generator/README.md) |
 | GeoServer raster benchmark | Compare raster compression, conversion quality, WMS/WMTS delivery and resource profiles using Windows Podman Desktop. | [Benchmark guide](docs/geoserver-benchmark.md) |
 
@@ -27,7 +28,7 @@ Windows; the original QGIS 3.28 compatibility target remains unverified.
 The existing benchmark package remains at the repository root:
 `rasterbench/`, `configs/`, `infra/`, `scripts/` and `tests/`. Run its commands
 from this root. Installing `small-gis-demos` supplies the `rasterbench` CLI;
-the overview generator is an independent script.
+the GeoTIFF merger and overview generator are independent scripts.
 
 The historical 10-user study completed. Its
 [summary and limitations](docs/benchmark-results.md) distinguish measured
@@ -41,6 +42,8 @@ Public validation summaries retain test outcomes with local paths redacted.
 
 ## Tests
 
+- GeoTIFF merge: use QGIS 4.2 Python (GDAL/NumPy included), then run
+  `python -m unittest discover -s geotiff-merge/tests -v` (generated rasters only).
 - [Overview-generator native Windows tests](overview-generator/tests/README.md)
 - Benchmark unit suite: `PYTHONPATH=.:.build/copernicus python -m unittest discover -s tests -v`
   after `python -m pip install -r requirements-test.txt` and fetching the
@@ -48,5 +51,5 @@ Public validation summaries retain test outcomes with local paths redacted.
 - Container-backed integration and real benchmark runs are separate, opt-in
   operations; unit tests do not start services or download imagery.
 
-Release: **0.1.0**. See [CHANGELOG.md](CHANGELOG.md) and
+Release: **0.2.0**. See [CHANGELOG.md](CHANGELOG.md) and
 [third-party notices](THIRD_PARTY_NOTICES.md).

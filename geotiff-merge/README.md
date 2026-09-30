@@ -1,0 +1,240 @@
+# GeoTIFF merge for QGIS 4.2
+
+Merge a flat directory of `.tif` / `.tiff` files into larger, spatially disjoint
+GeoTIFFs. Size is a **target with a 10% allowance**: a 25 GB target accepts a
+finished TIFF up to 27.5 GB, including metadata and its internal mask. Inputs
+are read-only. Every output is exhaustively verified before completion.
+
+## QGIS Python console
+
+QGIS 4.2 includes the required GDAL and NumPy. No Rasterio, pip installation,
+or additional plugin is needed. Load the script with `runpy.run_path`:
+
+```python
+import runpy
+merger = runpy.run_path(r"C:\tools\merge_geotiffs.py")
+
+# Default: use the available CPUs and derive a RAM budget from available memory.
+job = merger["start"](r"D:\rasters", r"D:\merged", target_size="25GB")
+
+# Alternatively, set either or both resource limits; use a new output directory.
+job = merger["start"](r"D:\rasters", r"D:\merged-limited",
+                      target_size="25GB", cpus=8, ram="8GiB")
+
+job.status()   # Progress, PID, log path and current report
+job.cancel()   # Optional cooperative cancellation
+# When job.done is True:
+# report = job.result()
+```
+
+`start()` returns immediately. An isolated child process uses QGIS's bundled
+Python; progress reaches the console through a Qt timer. QGIS remains responsive,
+and its own GDAL cache, exception mode and CPU affinity are not changed.
+Use the shown `runpy` loading method rather than pasting the script's CLI entry
+point into the console editor. The script file must remain accessible to the child.
+
+## QGIS / OSGeo4W shell
+
+In a shell with QGIS's Python environment activated:
+
+```bash
+# Inspect overlaps; still reads and hashes the inputs.
+python geotiff-merge/merge_geotiffs.py /data/input /data/analysis \
+  --target-size 25GB --analyze-only
+
+# Merge using available resources.
+python geotiff-merge/merge_geotiffs.py /data/input /data/merged \
+  --target-size 25GB
+
+# Optional limits, independently configurable.
+python geotiff-merge/merge_geotiffs.py /data/input /data/merged-limited \
+  --target-size 25GB --cpus 8 --ram 8GiB
+```
+
+`--max-size` remains an alias for `--target-size`, with the same 10% allowance.
+Standalone Python also works with matching GDAL 3.8+ bindings and NumPy.
+Do not pip-install a different GDAL into an existing QGIS installation.
+
+The output directory must **not exist** and must be separate from, and not
+nested within, the input directory. Use a fresh directory when rerunning.
+`25GB` means 25,000,000,000 bytes; `25GiB` means 26,843,545,600 bytes.
+The scan is nonrecursive and accepts case-insensitive TIFF extensions.
+
+Outputs are `mosaic-00001.tif`, `mosaic-00002.tif`, etc., plus `report.json`.
+Treat a run as successful only when the process exits zero and the report says
+`"status": "complete"`. An analysis run has status `analyzed` and no TIFFs.
+
+## What “data unchanged” means
+
+The default policy preserves every **valid, decoded source band sample** at
+its original pixel location. It uses lossless DEFLATE, no reprojection,
+resampling, blending, arithmetic, or dtype conversion. `--compression none`
+disables compression. Output files are BigTIFFs with 256 × 256 pixel tiles.
+
+Verification is mandatory and exhaustive, with no numerical tolerance:
+
+1. SHA-256 hashes record every input and dependency reported by GDAL, including
+   external masks or auxiliary metadata. They are checked again after writing.
+2. The script closes and reopens each output, then reads the original sources
+   against it in bounded windows. With the default overlap policy, it compares
+   **every valid sample of every source**, including duplicate overlap samples,
+   byte for byte. Floating-point signed zeros and valid NaN payloads matter.
+3. It checks the complete validity mask against the union of valid source
+   samples. Uncovered areas remain invalid, including gaps with valid zero-valued
+   samples nearby. Source nodata never overwrites valid data from another source.
+4. It checks CRS, transform, dimensions, dtype, band count, nodata, scales,
+   offsets, units, descriptions, color interpretation, and Area/Point semantics.
+5. It verifies that output rectangles do not overlap and cover every source
+   footprint, checks actual TIFF byte lengths, and records output SHA-256 hashes.
+
+Invalid samples are absence of data: their raw payload bytes are not preserved.
+They are filled with the common nodata value, or zero plus an internal mask when
+there is no nodata value. A valid observation in another source may fill a nodata
+hole. This is a mosaic, not a byte-identical archive of the input TIFF containers.
+
+Arbitrary application tags, statistics, overviews, original compression/layout,
+and other ancillary metadata are not copied. The source files retain them.
+Do not modify inputs or their sidecars during a run. Hashing detects persistent
+changes; this is not an atomic snapshot of a directory being actively written.
+
+## Overlaps: which choice preserves the information?
+
+The report distinguishes intersecting footprints, overlapping **valid** samples,
+and conflicting values. Counts are band samples (not necessarily spatial pixels).
+Pairwise counts can count the same location more than once with three or more
+overlapping files. Examples identify the source pair, band, pixel, map coordinate,
+and values.
+
+| Situation | Default behavior |
+| --- | --- |
+| Footprints overlap, but only one source is valid | Use the valid sample. |
+| Both sources are valid and have identical sample bits | Keep one copy; both sources pass verification. |
+| Both sources are valid and disagree | Stop before creating any output TIFFs; write details and suggestions to `report.json`. |
+
+If values disagree, a single mosaic cell cannot retain both observations.
+**Keep separate layers/originals if both observations must be preserved.** If one
+source is authoritative, select an explicit priority after reviewing the report:
+
+```bash
+# First valid source wins; precedence is case-sensitive lexical filename order.
+python geotiff-merge/merge_geotiffs.py /data/input /data/merged-first \
+  --target-size 25GB --overlap first
+
+# Last valid source wins in that same order.
+python geotiff-merge/merge_geotiffs.py /data/input /data/merged-last \
+  --target-size 25GB --overlap last
+```
+
+The exact order appears as `input_order` in the report. Priority applies per
+band, with nodata fallback. These options **discard conflicting observations**;
+the report sets `all_source_valid_values_preserved` to false and counts discarded
+source samples. Verification then proves that every selected value is unchanged
+and the output implements the chosen priority, not that all original values
+survived. Averaging and blending are deliberately unavailable because they create
+new pixel values. Analysis alone never asserts output preservation.
+
+## File count and size planning
+
+**100 GB of inputs does not guarantee exactly four 25 GB outputs.** The result's
+size changes with lossless compression, gaps, duplicated overlap, source
+overviews, masks, block padding, and TIFF overhead. Each final file must be at most 110% of the target; the number
+of files is an outcome. This script does not promise the minimum possible count.
+
+The planner estimates compression from eight sampled 256-pixel windows per
+source using lossless DEFLATE, partitions spatial rectangles on pixel boundaries,
+and trims footprint-free outer space. Sampling is for size estimation only;
+verification always checks every required sample.
+It can split a single input that is larger than the limit. After writing a
+candidate, it measures its closed file size. Candidates up to target +10% are
+accepted. Larger candidates are discarded and split until every accepted file fits. If even one tiled pixel cannot
+fit with its TIFF overhead, the run fails explicitly. Empty areas within output
+rectangles are invalid; the planner skips completely uncovered rectangles.
+Entirely nodata source rasters retain their footprints.
+
+The cap applies to each **final TIFF**, not the report, combined output directory,
+RAM, or temporary candidates. Estimates can be wrong; a temporary candidate can
+exceed the cap. Allow disk space for the full result plus concurrent candidates. Heterogeneous
+compression and spatial gaps can still produce extra output files.
+
+## CPU and RAM controls
+
+- Without `cpus` / `--cpus`, the script uses the available logical CPU count.
+  Independent hashes, overlap pairs, size samples, output mosaics and verification
+  run concurrently. Each worker owns its GDAL datasets; handles are never shared.
+  Remaining CPU slots form GDAL's shared compression pool, including when there
+  is only one output. Codec threads are shared across files, not multiplied by
+  the output-worker count.
+- `cpus=8` / `--cpus 8` bounds worker/codec concurrency. The worker process also
+  receives CPU affinity for at most that many allowed logical CPUs on Windows
+  and Linux. This limits cores available to the merge, not a percentage of host
+  CPU time. The Qt parent and unrelated programs are unaffected.
+- Without `ram` / `--ram`, the working-memory budget is 80% of memory available
+  at planning time. The planner uses the smaller of an explicit budget and that
+  available-memory allowance. It assigns a shared GDAL cache (up to 4 GiB),
+  estimates source decoding buffers and temporary arrays, and reduces worker
+  count/window size when needed. Four source handles are cached per output worker.
+- `ram="8GiB"` / `--ram 8GiB` is a **working-memory budget, not an OS-enforced
+  process memory ceiling**. Python, GDAL codecs, allocator behavior, and memory
+  pressure from other applications can affect actual RSS. It excludes the QGIS
+  parent process. At least 256 MiB is required; very large source strips can need
+  a larger budget. Limits and the resolved allocation are recorded in the report.
+- Optional advanced CLI controls: `--block-size` caps the processing window edge
+  (default auto, up to 2048 pixels), and `--cache-mib` caps the GDAL cache inside
+  the overall RAM budget. More threads do not guarantee speedup when storage is
+  the bottleneck or there are few independent output regions.
+
+## Compatibility and operational limits
+
+- Equal CRS is necessary but insufficient: inputs must be north-up, unrotated,
+  have equal pixel sizes and aligned pixel origins, compatible band interpretation,
+  identical band count/dtype, and a common nodata convention. Grid comparisons
+  allow only `1e-7` pixel of representation error (including accumulated pixel-size
+  drift across a raster). No resampling is attempted for incompatible grids.
+- Supported types are real integer types up to 32 bits and Float32/Float64.
+  Complex types, 64-bit integers, palettes, alpha bands, GCP/RPC georeferencing,
+  differing per-band nodata and combinations of tuple and scalar nodata are rejected. Preprocessing those
+  inputs requires a separate, explicit preservation decision.
+- RGB tuple nodata (`NODATA_VALUES`, such as `0 0 0`) is supported when scalar
+  band nodata is absent. A zero in only one color channel remains valid. The
+  tuple metadata and a shared internal validity mask are preserved.
+- With scalar nodata, differing per-band validity is supported. Masked-out data is
+  normalized to nodata. Masks that mark nodata-valued pixels valid are rejected
+  because that distinction cannot be encoded by the output nodata convention.
+  Without nodata, all bands must share a validity mask, stored inside the TIFF.
+- Overlap checking examines intersecting source pairs and all their overlap
+  samples; heavily overlapping collections can be expensive. Full verification
+  and before/after hashing intentionally add substantial I/O. There is no
+  statistical sampling or option to skip verification.
+- Work happens in `.incomplete` inside a newly created output directory. Only
+  this run's oversized temporary candidates are deleted automatically. Failure
+  or Ctrl+C leaves a failure report and may leave incomplete files for inspection.
+  No resume or overwrite mode is provided. A crash during final publication can
+  leave some TIFFs at the top level: without a complete report, the run is unfinished.
+- QGIS console cancellation is cooperative at bounded processing windows and
+  hash chunks; an in-progress GDAL call finishes before cancellation is observed.
+  The sibling job log and cancellation file are retained as evidence. No inputs
+  are removed. Do not call the internal `run()` function concurrently inside
+  QGIS; use the isolated `start()` API.
+
+## Validation
+
+```bash
+python -m unittest discover -s geotiff-merge/tests -v
+```
+
+The generated-data suite checks spatial reconstruction, holes, nodata fallback,
+valid zeroes, per-band masks, identical/conflicting overlaps, both priority
+policies, float bits, internal/external masks, band metadata, actual-size splitting,
+oversized-candidate retries, incompatible grids, small caps, distant footprints,
+input changes, and deliberately corrupted pixels/masks. It also exercises the CLI.
+See the [validation report](validation-report.md) for tested versions and limits.
+
+The Windows `tests/validate_sentinel.py` harness uses a retained Sentinel-derived RGB
+reference, creates aligned lossless input windows plus an identical overlap,
+launches the async API with a Qt heartbeat, records process CPU/RAM telemetry,
+and independently compares all outputs against the unsplit reference. It does
+not download data. See the validation report for measured results and the
+distinction between bundled-Python, Qt event-loop and full QGIS desktop coverage.
+
+Design references: [GDAL GeoTIFF masks, compression and BigTIFF](https://gdal.org/en/stable/drivers/raster/gtiff.html)
+and [GDAL raster thread safety](https://gdal.org/en/stable/development/rfc/rfc101_raster_dataset_threadsafety.html).

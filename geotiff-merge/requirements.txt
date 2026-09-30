@@ -1,0 +1,4 @@
+# QGIS 4.2 already bundles NumPy and osgeo.gdal. Do not pip-install a different
+# GDAL into QGIS. Standalone Python needs matching GDAL >=3.8 bindings/runtime
+# from its platform package manager, in addition to NumPy.
+numpy>=1.24,<3
