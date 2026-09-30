@@ -4,7 +4,13 @@ The current GDAL implementation passed **35 generated-data tests** and two
 medium-size runs on real Sentinel-derived imagery using **QGIS 4.2's bundled
 Python 3.12.13 and GDAL 3.13.1 on Windows**. No data was downloaded for these tests.
 
-Tested script SHA-256: `d72af68e93c920d757ff83d0f81f6ce7f854a4e7bfdc8564db331cb010713ab2`.
+Medium-run script SHA-256: `d72af68e93c920d757ff83d0f81f6ce7f854a4e7bfdc8564db331cb010713ab2`.
+
+The release script replaces `GetDataTypeSizeBytes(type)` with the equivalent
+`GetDataTypeSize(type) // 8` for compatibility with Ubuntu's older GDAL.
+That is the only production-code change after the medium runs. All 35 tests
+passed again in QGIS 4.2 Python after this change; the medium runs were not repeated.
+Release script SHA-256: `13cea2b4065c521a0ba9381cf339ca478c82c7ec00258f2160707ef64f1021d3`.
 
 ## Real Sentinel data
 

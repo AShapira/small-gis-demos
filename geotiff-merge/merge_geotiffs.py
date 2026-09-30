@@ -487,7 +487,8 @@ def resource_plan(args, template, sources, jobs):
     for src in sources:
         with opened(src.path) as ds:
             decode_sizes.append(sum(math.prod(ds.GetRasterBand(i).GetBlockSize()) *
-                gdal.GetDataTypeSizeBytes(ds.GetRasterBand(i).DataType) for i in range(1, ds.RasterCount + 1)))
+                (gdal.GetDataTypeSize(ds.GetRasterBand(i).DataType) // 8)
+                for i in range(1, ds.RasterCount + 1)))
     decode_reserve = 2 * sum(sorted(decode_sizes, reverse=True)[:4])
     edge = args.block_size or 2048
     count, itemsize = template['count'], np.dtype(template['dtype']).itemsize
