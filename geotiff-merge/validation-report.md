@@ -1,6 +1,35 @@
 # GeoTIFF merge validation — 2026-09-30
 
-The current GDAL implementation passed **35 generated-data tests** and two
+## Optional-size, naming and timing update
+
+The updated script passed **41 generated-data tests** in QGIS 4.2's Windows
+Python 3.12.13 / GDAL 3.13.1. New coverage includes omitted size targets, custom
+names for single and split outputs, filename validation, CLI/API defaults,
+timing estimates, retry work, and five-second updates during a long write.
+
+Tested script SHA-256: `ba1db96b8662593c696622f4dd5b32fe1d15ff1e4c249c4504debb1db00b7155`.
+
+A further real Sentinel test reused the same 17 inputs (5,134,938,324 bytes)
+described below. With no size target, `base_name="sentinel"`, `cpus=8`, and
+`ram="2GiB"`, it produced exactly one **`sentinel-00001.tif`** of **3,198,304,237
+bytes**. Merge plus exhaustive internal verification took **112.734 seconds**.
+All **5,134,614,378** required source band samples passed; input hashes were
+unchanged. A separate full comparison against the unsplit reference passed for
+**1,711,276,032 pixels**, **5,133,827,946 valid band samples**, and **150 invalid
+band samples**. The reference hash remained unchanged.
+
+The Qt event loop recorded **456 heartbeat ticks** and relayed **28 rough
+duration updates**. Parent GDAL cache and exception mode were unchanged.
+The full desktop import remains blocked as described below; this validates
+bundled-Python execution and the Qt event loop, not the desktop console widget.
+The reported merge time excludes the independent reference comparison.
+Raw evidence is retained locally as `validation-single-options.json`; it is
+excluded from Git. Compilation and `git diff --check` also passed. Remote CI
+results are recorded separately in GitHub Actions for each commit/tag.
+
+## Version 0.2.0 validation
+
+The version 0.2.0 GDAL implementation passed **35 generated-data tests** and two
 medium-size runs on real Sentinel-derived imagery using **QGIS 4.2's bundled
 Python 3.12.13 and GDAL 3.13.1 on Windows**. No data was downloaded for these tests.
 

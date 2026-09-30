@@ -1,7 +1,8 @@
 # GeoTIFF merge for QGIS 4.2
 
 Merge a flat directory of `.tif` / `.tiff` files into larger, spatially disjoint
-GeoTIFFs. Size is a **target with a 10% allowance**: a 25 GB target accepts a
+GeoTIFFs. With no size target, all inputs merge into **one BigTIFF**. An optional
+size is a **target with a 10% allowance**: a 25 GB target accepts a
 finished TIFF up to 27.5 GB, including metadata and its internal mask. Inputs
 are read-only. Every output is exhaustively verified before completion.
 
@@ -14,8 +15,12 @@ or additional plugin is needed. Load the script with `runpy.run_path`:
 import runpy
 merger = runpy.run_path(r"C:\tools\merge_geotiffs.py")
 
-# Default: use the available CPUs and derive a RAM budget from available memory.
-job = merger["start"](r"D:\rasters", r"D:\merged", target_size="25GB")
+# Default: one file, available CPUs, and a RAM budget derived from available memory.
+job = merger["start"](r"D:\rasters", r"D:\merged", base_name="sentinel")
+
+# Optional size target: split into numbered files, each at most 27.5 GB.
+job = merger["start"](r"D:\rasters", r"D:\merged-sized",
+                      target_size="25GB", base_name="sentinel")
 
 # Alternatively, set either or both resource limits; use a new output directory.
 job = merger["start"](r"D:\rasters", r"D:\merged-limited",
@@ -40,9 +45,13 @@ In a shell with QGIS's Python environment activated:
 ```bash
 # Inspect overlaps; still reads and hashes the inputs.
 python geotiff-merge/merge_geotiffs.py /data/input /data/analysis \
-  --target-size 25GB --analyze-only
+  --analyze-only
 
-# Merge using available resources.
+# Merge everything into one sentinel-00001.tif using available resources.
+python geotiff-merge/merge_geotiffs.py /data/input /data/merged-single \
+  --base-name sentinel
+
+# Merge with an optional size target.
 python geotiff-merge/merge_geotiffs.py /data/input /data/merged \
   --target-size 25GB
 
@@ -61,8 +70,63 @@ nested within, the input directory. Use a fresh directory when rerunning.
 The scan is nonrecursive and accepts case-insensitive TIFF extensions.
 
 Outputs are `mosaic-00001.tif`, `mosaic-00002.tif`, etc., plus `report.json`.
+Set `--base-name sentinel` / `base_name="sentinel"` for `sentinel-00001.tif`, etc.
+The numeric suffix is retained even when there is only one file.
 Treat a run as successful only when the process exits zero and the report says
 `"status": "complete"`. An analysis run has status `analyzed` and no TIFFs.
+
+## All input parameters
+
+Both positional paths are required. All other user parameters are optional.
+The API column refers to keyword arguments of `merger["start"](...)`.
+
+| Shell parameter | QGIS `start()` parameter | Default | Meaning |
+| --- | --- | --- | --- |
+| `input` | `input_dir` (positional) | Required | Existing flat input directory. Reads `.tif` / `.tiff`, case-insensitively, without recursion. |
+| `output` | `output_dir` (positional) | Required | New output directory, separate from and not nested in the input directory (or vice versa). Must not already exist. |
+| `--target-size SIZE`, alias `--max-size SIZE` | `target_size` | Omitted / `None` | Omit to merge all inputs into one file with no byte-size cap. Otherwise use a positive size such as `25GB` or `25GiB`; each finished TIFF may be up to 10% larger. Does not set an exact file count. |
+| `--base-name NAME` | `base_name` | `"mosaic"` | Filename stem, without the `.tif` extension. Outputs use `NAME-00001.tif`, `NAME-00002.tif`, etc. Spaces and Unicode are allowed; paths, Windows-reserved names/characters, empty names, and trailing dots/spaces are rejected. Quote names containing spaces in the shell. Does not rename `report.json`. |
+| `--cpus N` | `cpus` | Available logical CPUs | Positive integer ceiling on worker/codec concurrency and child CPU affinity; never exceeds available CPUs. |
+| `--ram SIZE` | `ram` | 80% of available RAM | Working-memory planning budget, e.g. `8GiB`, capped by available-memory allowance. At least 256 MiB is required. Not an OS-enforced memory ceiling. |
+| `--overlap error\|first\|last` | `overlap` | `"error"` | Stop on conflicting valid samples, or explicitly select first/last valid source in lexical filename order. Identical overlaps and nodata fallback are accepted in every mode. First/last can discard observations. |
+| `--analyze-only` | `analyze_only` | `False` | Hash sources, inspect compatibility/overlaps, and write a report without TIFFs. Default overlap conflict policy still applies. |
+| `--compression deflate\|none` | `compression` | `"deflate"` | Lossless DEFLATE compression or uncompressed BigTIFF. |
+| `--block-size N` | `block_size` | Automatic, starts at 2048 | Positive processing-window edge in pixels, reduced if needed for RAM. Independent of the fixed 256-pixel TIFF storage tiles. |
+| `--cache-mib N` | `cache_mib` | Derived from RAM | Positive integer GDAL cache ceiling in MiB. Cache is also limited to one quarter of the RAM budget and 4 GiB. |
+| `-h`, `--help` | — | — | Print shell usage and exit without processing. |
+| — | `python_executable` | QGIS's own Python | Optional Python executable path if automatic discovery fails. Must provide matching GDAL and NumPy; normally leave unset. |
+
+Size values accept bytes without a suffix, or `B`, `KB`, `MB`, `GB`, `TB`,
+`KiB`, `MiB`, `GiB`, `TiB` (case-insensitive; decimal quantities accepted).
+Use strings for sizes in `start()`, for example `ram="2GiB"`. CPU, cache and
+window limits are integers; `analyze_only` is a Boolean.
+
+The hidden shell parameter `--cancel-file PATH` is an internal child-process
+control: the worker cancels cooperatively if that file exists. `start()` allocates
+it automatically; use `job.cancel()` rather than supplying it yourself. It has
+no public `start()` keyword. `job.status()`, `job.done`, and `job.result()` inspect
+the running/completed job; these are methods/properties, not input parameters.
+
+## Console elapsed time and rough duration
+
+The shell and QGIS console print timing at phase changes and every five seconds:
+
+```text
+[Merging and verifying] elapsed 00:03:10; rough expected total 00:07:20; remaining ~00:04:10
+```
+
+Times use `hours:minutes:seconds`. Elapsed time is measured from worker startup.
+The expected total and remaining durations are **rough estimates**, using fixed
+phase weights and completed hash bytes / overlap pixels / written and verified
+pixels. They update as work proceeds, including extra work after size retries.
+They can move backward or forward with compression, sparse extents, cache effects,
+output hashing, and disk speed. Initially the estimate says `estimating`; it is
+not a completion guarantee or a measured benchmark. Verification and rehashing
+are included in the estimated run. Completion prints the actual elapsed time
+and zero remaining time. The final report retains `elapsed_seconds`.
+
+`start()` relays these lines on QGIS's GUI thread via its Qt timer. Outside a
+running Qt application, inspect the job log named by `job.status()["log"]`.
 
 ## What “data unchanged” means
 
@@ -135,6 +199,16 @@ new pixel values. Analysis alone never asserts output preservation.
 
 ## File count and size planning
 
+Without `target_size` / `--target-size`, one BigTIFF covers the bounding rectangle
+of all input footprints. Gaps remain invalid; even distant inputs belong to this
+one rectangle. There is no size calibration, byte cap or splitting in this mode.
+It still processes bounded windows and verifies every required sample. Very
+large gaps can make the single output expensive to write and verify. In the
+report, `target_file_bytes`, `max_file_bytes`, and `size_allowance_percent` are
+`null`. Analysis-only runs still produce no TIFFs.
+
+With a size target supplied, the following planning rules apply.
+
 **100 GB of inputs does not guarantee exactly four 25 GB outputs.** The result's
 size changes with lossless compression, gaps, duplicated overlap, source
 overviews, masks, block padding, and TIFF overhead. Each final file must be at most 110% of the target; the number
@@ -178,7 +252,7 @@ compression and spatial gaps can still produce extra output files.
   pressure from other applications can affect actual RSS. It excludes the QGIS
   parent process. At least 256 MiB is required; very large source strips can need
   a larger budget. Limits and the resolved allocation are recorded in the report.
-- Optional advanced CLI controls: `--block-size` caps the processing window edge
+- Optional advanced controls (also available as `start()` keywords): `--block-size` caps the processing window edge
   (default auto, up to 2048 pixels), and `--cache-mib` caps the GDAL cache inside
   the overall RAM budget. More threads do not guarantee speedup when storage is
   the bottleneck or there are few independent output regions.

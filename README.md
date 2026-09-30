@@ -4,7 +4,7 @@ Practical GIS demonstrations with reproducible tests and documented limits.
 
 | Demo | Purpose | Start here |
 | --- | --- | --- |
-| GeoTIFF merge for QGIS 4.2 | Merge aligned rasters to a target size (+10% allowance), use available CPU/RAM with optional limits, and exhaustively verify pixels and masks. | [geotiff-merge/](geotiff-merge/README.md) |
+| GeoTIFF merge for QGIS 4.2 | Merge aligned rasters into one file or an optional target size (+10% allowance), use available CPU/RAM with optional limits, and exhaustively verify pixels and masks. | [geotiff-merge/](geotiff-merge/README.md) |
 | GeoTIFF overview generator | Rebuild external overviews with GDAL, bounded parallelism, dry runs, logs and cooperative cancellation; CLI and QGIS Python-console entry points. | [overview-generator/](overview-generator/README.md) |
 | GeoServer raster benchmark | Compare raster compression, conversion quality, WMS/WMTS delivery and resource profiles using Windows Podman Desktop. | [Benchmark guide](docs/geoserver-benchmark.md) |
 
@@ -51,5 +51,5 @@ Public validation summaries retain test outcomes with local paths redacted.
 - Container-backed integration and real benchmark runs are separate, opt-in
   operations; unit tests do not start services or download imagery.
 
-Release: **0.2.0**. See [CHANGELOG.md](CHANGELOG.md) and
+Release: **0.3.0**. See [CHANGELOG.md](CHANGELOG.md) and
 [third-party notices](THIRD_PARTY_NOTICES.md).

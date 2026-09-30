@@ -149,6 +149,8 @@ def main():
     p.add_argument('--work', type=Path, required=True)
     p.add_argument('--cpus', type=int)
     p.add_argument('--ram')
+    p.add_argument('--single-file', action='store_true', help='Omit the size target to exercise one-file mode')
+    p.add_argument('--base-name', default='mosaic')
     p.add_argument('--label', help='Fresh result label when retaining evidence from an earlier run')
     args = p.parse_args()
     work = args.work.resolve()
@@ -165,7 +167,8 @@ def main():
                   input_count=len(manifest['inputs']), input_bytes=manifest['total_input_bytes'], samples=[])
     cache_before, exceptions_before = gdal.GetCacheMax(), gdal.GetUseExceptions()
     began = time.monotonic()
-    job = module['start'](work / 'inputs', output, target_size='1GiB', cpus=args.cpus, ram=args.ram)
+    job = module['start'](work / 'inputs', output, target_size=None if args.single_file else '1GiB',
+                          base_name=args.base_name, cpus=args.cpus, ram=args.ram)
     result['start_return_seconds'] = time.monotonic() - began
     timer = QTimer(app)
     timer.setInterval(250)
@@ -193,7 +196,15 @@ def main():
         assert not errors, errors
         assert result['qgis_cache_unchanged'] and result['qgis_exception_mode_unchanged']
         assert result['heartbeat'] > 2
-        assert all(o['bytes'] <= 1024**3 * 11 // 10 for o in report['outputs'])
+        if args.single_file:
+            assert len(report['outputs']) == 1 and report['target_file_bytes'] is None
+        else:
+            assert all(o['bytes'] <= 1024**3 * 11 // 10 for o in report['outputs'])
+        assert [o['name'] for o in report['outputs']] == [
+            f'{args.base_name}-{i:05d}.tif' for i in range(1, len(report['outputs']) + 1)]
+        console_log = job.log_path.read_text(encoding='utf-8')
+        result['timing_updates'] = console_log.count('rough expected total')
+        assert result['timing_updates'] > 2 and 'elapsed ' in console_log
         result['independent_verification'] = independent_check(args.reference, output, report)
         result['reference_unchanged'] = digest(args.reference) == manifest['reference_sha256']
         assert result['reference_unchanged']

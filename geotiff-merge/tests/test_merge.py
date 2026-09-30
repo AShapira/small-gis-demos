@@ -1,6 +1,7 @@
 """Generated-data contract tests; no user rasters or external services."""
 
 import contextlib
+import argparse
 import importlib.util
 import io
 import json
@@ -83,6 +84,75 @@ class MergeTests(unittest.TestCase):
         np.testing.assert_array_equal(actual_valid, valid)
         # Byte comparison also catches float signed-zero / NaN payload changes.
         self.assertEqual(actual[valid].tobytes(), expected[valid].tobytes())
+
+    def test_omitted_target_creates_one_verified_file(self):
+        self.make('a.tif', np.array([[0, 1]], dtype='uint8'))
+        self.make('b.tif', np.array([[2, 3]], dtype='uint8'), x=4)
+        args = merge.parser().parse_args([str(self.source), str(self.output)])
+        with patch.object(merge, 'estimate_density', side_effect=AssertionError('No size planning needed')):
+            with contextlib.redirect_stderr(io.StringIO()):
+                report = merge.run(args)
+        self.assertEqual([o['name'] for o in report['outputs']], ['mosaic-00001.tif'])
+        self.assertIsNone(report['target_file_bytes'])
+        self.assertIsNone(report['max_file_bytes'])
+        self.assertTrue(report['all_source_valid_values_preserved'])
+        self.assert_mosaic(np.array([[0, 1, 0, 0, 2, 3]], dtype='uint8'),
+                           np.array([[1, 1, 0, 0, 1, 1]], dtype=bool))
+
+    def test_custom_base_name_for_split_outputs(self):
+        values = np.random.default_rng(3).integers(0, 65535, (512, 512), dtype='uint16')
+        self.make('a.tif', values)
+        report = self.run_merge('--target-size', '200KB', '--base-name', 'Sentinel RGB')
+        self.assertGreater(len(report['outputs']), 1)
+        self.assertEqual([o['name'] for o in report['outputs']],
+                         [f'Sentinel RGB-{i:05d}.tif' for i in range(1, len(report['outputs']) + 1)])
+        self.assert_mosaic(values, np.ones(values.shape, dtype=bool))
+
+    def test_cli_single_file_custom_name_and_timing(self):
+        self.make('a.tif', np.array([[4, 5]], dtype='uint8'))
+        proc = subprocess.run([sys.executable, str(SCRIPT), str(self.source), str(self.output),
+                               '--base-name', 'region'], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual([p.name for p in self.output.glob('*.tif')], ['region-00001.tif'])
+        self.assertIn('elapsed ', proc.stderr)
+        self.assertIn('rough expected total', proc.stderr)
+        self.assertIn('remaining ', proc.stderr)
+        self.assertIn('[complete]', proc.stderr)
+
+    def test_base_name_rejects_paths_and_windows_reserved_names(self):
+        for name in ('', '..', '../escape', 'a/b', 'a\\b', 'C:escape', 'NUL', 'con.txt', 'a?', 'a.', 'a '):
+            with self.subTest(name=name):
+                with self.assertRaises(argparse.ArgumentTypeError):
+                    merge.output_base_name(name)
+        self.assertFalse(self.output.exists())
+
+    def test_timing_estimate_and_retry_work(self):
+        with patch.object(merge.time, 'monotonic', return_value=100):
+            progress = merge.Progress()
+        output = io.StringIO()
+        with contextlib.redirect_stderr(output), patch.object(merge.time, 'monotonic', return_value=160):
+            progress.phase_start('Merging and verifying', .4, .5, 100)
+            progress.advance('Merging and verifying', 50)
+            progress.emit()
+            # Extra work from a size retry must increase the remaining estimate.
+            progress.advance('Merging and verifying', 0, extra_total=100)
+            progress.emit()
+        lines = output.getvalue().splitlines()
+        self.assertIn('elapsed 00:01:00', lines[1])
+        self.assertIn('rough expected total 00:01:32', lines[1])
+        self.assertIn('rough expected total 00:01:54', lines[2])
+
+    def test_progress_heartbeat_during_long_write_and_cleanup(self):
+        self.make('a.tif', np.ones((2, 2), dtype='uint8'))
+        original = merge.create_candidate
+        def delayed(*args, **kwargs):
+            time.sleep(5.2)
+            return original(*args, **kwargs)
+        output = io.StringIO()
+        with patch.object(merge, 'create_candidate', side_effect=delayed), contextlib.redirect_stderr(output):
+            merge.run(self.args())
+        self.assertGreaterEqual(output.getvalue().count('[Merging and verifying]'), 2)
+        self.assertIsNone(merge._progress)
 
     def test_adjacent_tiles_gap_and_nodata(self):
         a = np.array([[1, -99], [3, 4]], dtype="int16")
@@ -416,12 +486,16 @@ class MergeTests(unittest.TestCase):
 
     def test_async_api_and_cancellation(self):
         self.make('a.tif', np.ones((512, 512), dtype='uint8'))
-        job = merge.start(self.source, self.output, target_size='1MiB', cpus=2, ram='1GiB')
+        job = merge.start(self.source, self.output, base_name='async region', cpus=2, ram='1GiB',
+                          block_size=256, cache_mib=64)
         deadline = time.monotonic() + 30
         while not job.done and time.monotonic() < deadline:
             time.sleep(.025)
         self.assertTrue(job.done, job.status())
         self.assertEqual(job.result()['status'], 'complete')
+        self.assertIsNone(job.result()['target_file_bytes'])
+        self.assertEqual(job.result()['outputs'][0]['name'], 'async region-00001.tif')
+        self.assertIn('rough expected total', job.log_path.read_text(encoding='utf-8'))
         self.output = self.root / 'cancelled-output'
         job = merge.start(self.source, self.output, target_size='1MiB', cpus=1, ram='1GiB')
         job.cancel()

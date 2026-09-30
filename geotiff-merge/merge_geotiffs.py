@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""QGIS 4.2 / GDAL merge: target-sized mosaics, 10% allowance, full verification.
+"""QGIS 4.2 / GDAL merge: one mosaic or optional target size, full verification.
 
 QGIS console: import runpy; merger = runpy.run_path('/path/merge_geotiffs.py')
 job = merger['start']('/input', '/new-output', target_size='25GB')
@@ -20,6 +20,7 @@ import re
 import sys
 import subprocess
 import time
+import threading
 import uuid
 import zlib
 
@@ -140,12 +141,83 @@ def size_bytes(value):
     return result
 
 
-def sha256(path):
+def output_base_name(value):
+    # A filename component, portable across Windows and POSIX; never a path.
+    if (not value or value in ('.', '..') or value[-1:] in (' ', '.') or
+            re.search(r'[<>:"/\\|?*\x00-\x1f]', value) or
+            re.fullmatch(r'(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?', value, re.I)):
+        raise argparse.ArgumentTypeError('Base name must be a nonempty portable filename stem, not a path')
+    return value
+
+
+def duration(seconds):
+    hours, remainder = divmod(max(0, int(seconds)), 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f'{hours:02d}:{minutes:02d}:{seconds:02d}'
+
+
+class Progress:
+    """Thread-safe, bounded-frequency console timing; no GDAL calls in the timer."""
+    def __init__(self):
+        self.started = time.monotonic()
+        self.lock = threading.Lock()
+        self.stop_event = threading.Event()
+        self.phase, self.base, self.weight = 'Starting', 0, 0
+        self.completed, self.total = 0, 1
+        self.thread = threading.Thread(target=self._heartbeat, daemon=True)
+
+    def phase_start(self, name, base, weight, total=1, finished=False):
+        with self.lock:
+            self.phase, self.base, self.weight = name, base, weight
+            self.completed, self.total = 0, max(1, total)
+        self.emit(finished=finished)
+
+    def advance(self, phase, amount, extra_total=0):
+        with self.lock:
+            if self.phase == phase:
+                self.completed += amount
+                self.total += extra_total
+
+    def emit(self, finished=False):
+        with self.lock:
+            phase = self.phase
+            fraction = self.base + self.weight * min(1, self.completed / self.total)
+        elapsed = time.monotonic() - self.started
+        if finished:
+            timing = 'remaining 00:00:00'
+        elif fraction > 0:
+            expected = elapsed / fraction
+            timing = f'rough expected total {duration(expected)}; remaining ~{duration(expected - elapsed)}'
+        else:
+            timing = 'rough expected total: estimating; remaining: estimating'
+        log(f'[{phase}] elapsed {duration(elapsed)}; {timing}')
+
+    def _heartbeat(self):
+        while not self.stop_event.wait(5):
+            self.emit()
+
+    def close(self):
+        self.stop_event.set()
+        self.thread.join()
+
+
+_progress = None
+
+
+def advance_work(phase, amount, extra_total=0):
+    if _progress is not None:
+        _progress.advance(phase, amount, extra_total)
+
+
+def sha256(path, track_progress=False):
     digest = hashlib.sha256()
     with path.open("rb") as stream:
         for data in iter(lambda: stream.read(8 * 1024 * 1024), b""):
             check_cancel()
             digest.update(data)
+            if track_progress:
+                advance_work('Hashing inputs', len(data))
+                advance_work('Rehashing inputs', len(data))
     return digest.hexdigest()
 
 
@@ -306,6 +378,7 @@ def overlap_scan(sources, template, readers, edge):
                 bv, bm = read(b, part, readers, template)
                 both = am & bm
                 diff = both & ~bit_equal(av, bv)
+                advance_work('Checking overlaps', part.area)
                 valid_count += int(both.sum())
                 different += int(diff.sum())
                 if example is None and diff.any():
@@ -393,6 +466,7 @@ def create_candidate(path, region, sources, template, readers, edge, policy, com
             if nd is None:
                 dst.GetRasterBand(1).GetMaskBand().WriteArray(valid[0].astype('uint8') * 255,
                         xoff=part.x - region.x, yoff=part.y - region.y)
+            advance_work('Merging and verifying', part.area)
     finally:
         dst.Close()
 
@@ -431,6 +505,7 @@ def verify_output(path, region, sources, template, readers, edge, policy):
                 covered[section] |= mask
             if not np.array_equal(covered, actual_mask):
                 raise MergeError(f"Verification failed: validity mask or empty area in {path.name}")
+            advance_work('Merging and verifying', part.area)
     return {"checked_source_band_samples": checked, "discarded_conflicting_source_band_samples": discarded}
 
 
@@ -573,9 +648,10 @@ def process_region(region, staging, sources, template, resources, args):
                 create_candidate(path, region, sources, local_template, readers, resources['block_size'],
                                  args.overlap, args.compression)
                 size = path.stat().st_size
-                if size > args.max_size * 11 // 10:
+                if args.max_size is not None and size > args.max_size * 11 // 10:
                     path.unlink()  # This run's unpublished candidate only.
                     log(f'Candidate {size:,} exceeds target +10%; splitting')
+                    advance_work('Merging and verifying', 0, extra_total=region.area)
                     first, rest = split(region, min(0.5, args.max_size / size))
                     pending.extend((rest, first))
                     continue
@@ -593,8 +669,23 @@ def process_region(region, staging, sources, template, resources, args):
 
 
 def run(args):
+    global _progress
+    progress = Progress()
+    _progress = progress
+    progress.thread.start()
+    try:
+        result = _run(args, progress)
+        progress.phase_start(result['status'], 1, 0, finished=True)
+        return result
+    finally:
+        progress.close()
+        _progress = None
+
+
+def _run(args, progress):
     global _cancel_file
     _cancel_file = getattr(args, 'cancel_file', None)
+    output_base_name(args.base_name)
     source_dir, output_dir = args.input.resolve(), args.output.resolve()
     if not source_dir.is_dir():
         raise MergeError("Input must be an existing directory")
@@ -603,10 +694,11 @@ def run(args):
     # Exclusive directory creation prevents overwrites and concurrent runs.
     output_dir.mkdir(parents=True, exist_ok=False)
     report = {"status": "running", "target_file_bytes": args.max_size,
-              "max_file_bytes": args.max_size * 11 // 10, "size_allowance_percent": 10,
+              "max_file_bytes": args.max_size * 11 // 10 if args.max_size is not None else None,
+              "base_name": args.base_name, "size_allowance_percent": 10 if args.max_size is not None else None,
               "overlap_policy": args.overlap, "compression": args.compression,
               "gdal": gdal.VersionInfo("RELEASE_NAME"), "outputs": [], "inputs": []}
-    started = time.monotonic()
+    started = progress.started
     old_cache = gdal.GetCacheMax()
     readers = Readers()
     staging = output_dir / ".incomplete"
@@ -614,6 +706,7 @@ def run(args):
     try:
         with worker_options():
             check_cancel()
+            progress.phase_start('Inspecting inputs', 0, .05)
             sources, template = inventory(source_dir)
             resources = resource_plan(args, template, sources, len(sources))
             gdal.SetCacheMax(resources["gdal_cache_bytes"])
@@ -626,8 +719,9 @@ def run(args):
             fingerprints = {}
             log(f"Hashing {len(sources)} inputs and their GDAL-reported dependencies")
             files = sorted({p for src in sources for p in src.files})
+            progress.phase_start('Hashing inputs', .05, .15, sum(p.stat().st_size for p in files))
             with ThreadPoolExecutor(max_workers=resources['workers']) as executor:
-                hashes = executor.map(sha256, files)
+                hashes = executor.map(lambda p: sha256(p, track_progress=True), files)
                 fingerprints = {p: dict(bytes=p.stat().st_size, sha256=h) for p, h in zip(files, hashes)}
             for source in sources:
                 report["inputs"].append({"name": source.path.name, "grid_window": vars(source.rect),
@@ -635,6 +729,8 @@ def run(args):
             log("Checking overlap pixels")
             pairs = [(a, b) for i, a in enumerate(sources) for b in sources[i + 1:]
                      if a.rect.intersection(b.rect)]
+            progress.phase_start('Checking overlaps', .2, .15,
+                                 sum(a.rect.intersection(b.rect).area for a, b in pairs))
             def scan_pair(pair):
                 local = Readers(limit=2)
                 try:
@@ -653,34 +749,41 @@ def run(args):
                 if args.overlap == "error":
                     raise MergeError("Conflicting valid overlap pixels: review report.json; choose source priority or keep separate layers")
             if not args.analyze_only:
-                log('Calibrating output size from source samples')
-                bpp = estimate_density(sources, template, args.compression, resources['workers'])
-                report['estimated_bytes_per_pixel'] = bpp
-                target = max(1, int(max(1, args.max_size - 4096) / bpp))
-                regions = list(plan(bounds([s.rect for s in sources]), sources, target))
+                progress.phase_start('Planning outputs', .35, .05)
+                extent = bounds([s.rect for s in sources])
+                if args.max_size is None:
+                    regions = [extent]
+                else:
+                    log('Calibrating output size from source samples')
+                    bpp = estimate_density(sources, template, args.compression, resources['workers'])
+                    report['estimated_bytes_per_pixel'] = bpp
+                    target = max(1, int(max(1, args.max_size - 4096) / bpp))
+                    regions = list(plan(extent, sources, target))
                 resources = resource_plan(args, template, sources, len(regions))
                 report['resources'] = resources
                 log(f"Resources: {resources['workers']} file workers + shared pool of "
                     f"{resources['codec_threads_per_worker']} codec threads; "
                     f"RAM budget {resources['ram_budget_bytes'] / 1024**3:.2f} GiB")
                 write_report(output_dir, report)
+                progress.phase_start('Merging and verifying', .4, .5, 2 * sum(r.area for r in regions))
                 with ThreadPoolExecutor(max_workers=resources['workers']) as executor:
                     futures = [executor.submit(process_region, region, staging, sources,
                                                template, resources, args) for region in regions]
                     for future in futures:
                         report['outputs'].extend(future.result())
                 for i, output in enumerate(report['outputs'], 1):
-                    name = f'mosaic-{i:05d}.tif'
+                    name = f'{args.base_name}-{i:05d}.tif'
                     (staging / output['name']).rename(staging / name)
                     output['name'] = name
                 ensure_coverage(sources, report["outputs"])
             readers.close()
             log("Rehashing inputs to verify they remained unchanged")
+            progress.phase_start('Rehashing inputs', .9, .1, sum(v['bytes'] for v in fingerprints.values()))
             current, _ = inventory(source_dir)
             if [(s.path, s.files) for s in current] != [(s.path, s.files) for s in sources]:
                 raise MergeError("Input file list or dependency list changed during the run")
             with ThreadPoolExecutor(max_workers=resources['workers']) as executor:
-                for path, digest in zip(files, executor.map(sha256, files)):
+                for path, digest in zip(files, executor.map(lambda p: sha256(p, track_progress=True), files)):
                     before = fingerprints[path]
                     if path.stat().st_size != before["bytes"] or digest != before["sha256"]:
                         raise MergeError(f"Input changed during the run: {path}")
@@ -711,8 +814,10 @@ def parser():
     result = argparse.ArgumentParser(description=__doc__)
     result.add_argument("input", type=Path, help="Flat directory of input .tif/.tiff files")
     result.add_argument("output", type=Path, help="New, separate output directory; must not exist")
-    result.add_argument("--target-size", "--max-size", dest="max_size", required=True, type=size_bytes,
-                        help="Target output TIFF size; up to 10%% larger is accepted (e.g. 25GB)")
+    result.add_argument("--target-size", "--max-size", dest="max_size", type=size_bytes,
+                        help="Optional target TIFF size (+10%% allowed); omit to produce one TIFF")
+    result.add_argument("--base-name", default="mosaic", type=output_base_name,
+                        help="Output filename stem; default mosaic produces mosaic-00001.tif, etc.")
     result.add_argument("--cpus", type=int, help="Maximum worker/codec CPU concurrency; default all available CPUs")
     result.add_argument("--ram", type=size_bytes, help="Working-memory budget, e.g. 8GiB; default 80%% of available RAM")
     result.add_argument('--cancel-file', type=Path, help=argparse.SUPPRESS)
@@ -780,8 +885,9 @@ class Job:
                 live.remove(self)
 
 
-def start(input_dir, output_dir, *, target_size='25GB', cpus=None, ram=None,
-          overlap='error', compression='deflate', analyze_only=False, python_executable=None):
+def start(input_dir, output_dir, *, target_size=None, base_name='mosaic', cpus=None, ram=None,
+          overlap='error', compression='deflate', analyze_only=False, block_size=None,
+          cache_mib=None, python_executable=None):
     """Run from QGIS 4.2 console without blocking its Qt event loop.
 
     Uses QGIS's own Python in a separate process, so its GDAL cache and CPU
@@ -799,8 +905,14 @@ def start(input_dir, output_dir, *, target_size='25GB', cpus=None, ram=None,
     log_path = output.parent / f'.{output.name}-{token}.log'
     cancel_file = output.parent / f'.{output.name}-{token}.cancel'
     command = [str(executable), '-u', str(Path(__file__).resolve()), str(input_dir), str(output),
-               '--target-size', str(target_size), '--overlap', overlap, '--compression', compression,
+               '--base-name', base_name, '--overlap', overlap, '--compression', compression,
                '--cancel-file', str(cancel_file)]
+    if target_size is not None:
+        command += ['--target-size', str(target_size)]
+    if block_size is not None:
+        command += ['--block-size', str(block_size)]
+    if cache_mib is not None:
+        command += ['--cache-mib', str(cache_mib)]
     if cpus is not None:
         command += ['--cpus', str(cpus)]
     if ram is not None:

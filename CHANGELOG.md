@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0 — 2026-09-30
+
+- Make the GeoTIFF merge size target optional: omitting it produces one verified
+  BigTIFF covering all input footprints. Explicit targets retain the 10% allowance.
+- Add configurable output base names, elapsed time and rough total/remaining
+  duration in the shell and QGIS console, and a complete parameter reference.
+- Expose processing-window and GDAL-cache controls in the QGIS `start()` API.
+- Validate 41 generated-data tests and one 5.135 GB Sentinel input run producing
+  a single 3.198 GB TIFF, with an independent full-reference comparison.
+
 ## 0.2.0 — 2026-09-30
 
 - Add a standalone GeoTIFF merger for QGIS 4.2 with lossless compression,
