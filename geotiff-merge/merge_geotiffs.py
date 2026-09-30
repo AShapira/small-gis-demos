@@ -347,6 +347,8 @@ def read(source, rect, readers, template):
     data = read_values(ds, rect, source.rect)
     valid = read_masks(ds, rect, source.rect)
     nd = template["nodata"]
+    if 'output_nodata' in template:
+        return data, valid
     if nd is None:
         if not np.all(valid == valid[0]):
             raise MergeError(f"{source.path.name}: different band masks without nodata cannot be stored in one internal mask")
@@ -355,6 +357,175 @@ def read(source, rect, readers, template):
         if np.any(valid & is_nodata):
             raise MergeError(f"{source.path.name}: a mask marks nodata-valued pixels valid; cannot preserve this with output nodata")
     return data, valid
+
+
+def parse_output_nodata(text, dtype):
+    """Parse without integer wrapping or silent floating-point narrowing."""
+    dtype = np.dtype(dtype)
+    try:
+        number = Decimal(str(text.item() if isinstance(text, np.generic) else text))
+        if dtype.kind in 'ui':
+            limits = np.iinfo(dtype)
+            if not number.is_finite() or number != number.to_integral_value() or not limits.min <= number <= limits.max:
+                raise ValueError('not an integer in range')
+            return int(number)
+        value = float(number)
+        with np.errstate(over='ignore', invalid='ignore'):
+            narrowed = dtype.type(value).item()
+        if number.is_finite() and (not math.isfinite(value) or narrowed != value):
+            raise ValueError('not exactly representable')
+        return narrowed
+    except (InvalidOperation, ValueError, OverflowError):
+        raise MergeError(f'Output NoData {text!r} is not representable without rounding in {dtype.name}') from None
+
+
+def nodata_text(value):
+    return repr(value).lower()
+
+
+def matches_nodata(values, value):
+    return np.isnan(values) if math.isnan(value) else values == value
+
+
+def output_signature(template):
+    if 'output_nodata' in template:
+        return dict(template, nodata=template['output_nodata'], nodata_tuple='')
+    return template
+
+
+def valid_value_blocks(sources, template, edge):
+    # An explicit scalar output value can represent independent per-band masks.
+    scan_template = dict(template, output_nodata=0)
+    readers = Readers(limit=4)
+    try:
+        with worker_options():
+            for source in sources:
+                for part in blocks(source.rect, edge):
+                    values, valid = read(source, part, readers, scan_template)
+                    yield values, valid
+    finally:
+        readers.close()
+
+
+def value_keys(values, dtype):
+    if dtype.kind in 'ui':
+        return (values.astype(np.int64) - int(np.iinfo(dtype).min)).astype(np.uint64)
+    # Search exact IEEE representations. NaNs are checked separately; both
+    # signs of zero collide with scalar NoData zero and share key zero.
+    values = values[~np.isnan(values)]
+    keys = values.view(np.dtype(f'uint{dtype.itemsize * 8}')).astype(np.uint64)
+    keys[values == 0] = 0
+    return keys
+
+
+def find_unused_value(sources, template, edge):
+    """Exact bounded-memory radix search, including holes inside the value range.
+
+    Counts below a bin's capacity prove a free value exists even with duplicates.
+    Dense/duplicate-heavy bins are resolved with exact 64 KiB occupancy maps.
+    No in-memory set grows with input size or with the full 32/64-bit domain.
+    """
+    dtype = np.dtype(template['dtype'])
+    def search(lo, hi):
+        check_cancel()
+        width = hi - lo + 1
+        leaf = width <= 65536
+        span = 1 if leaf else (width + 255) // 256
+        count = (width + span - 1) // span
+        used = np.zeros(width, dtype=bool) if leaf else None
+        counts = [0] * count
+        log(f'NoData search: checking {width:,} representable values')
+        for values, valid in valid_value_blocks(sources, template, edge):
+            keys = value_keys(values[valid], dtype)
+            selected = keys[(keys >= np.uint64(lo)) & (keys <= np.uint64(hi))]
+            indices = ((selected - np.uint64(lo)) // np.uint64(span)).astype(np.int64)
+            if leaf:
+                used[indices] = True
+            else:
+                counts = [a + int(b) for a, b in zip(counts, np.bincount(indices, minlength=count))]
+        if leaf:
+            unused = np.flatnonzero(~used)
+            return lo + int(unused[0]) if unused.size else None
+        ranges = [(lo + i * span, min(hi, lo + (i + 1) * span - 1)) for i in range(count)]
+        for i, (a, b) in enumerate(ranges):
+            if counts[i] < b - a + 1:
+                return search(a, b)  # Pigeonhole proof: this bin has an unused value.
+        # Occurrence counts cannot prove full occupancy when values repeat.
+        for a, b in ranges:
+            result = search(a, b)
+            if result is not None:
+                return result
+        return None
+    if dtype.kind in 'ui':
+        info = np.iinfo(dtype)
+        key = search(0, int(info.max) - int(info.min))
+        return None if key is None else key + int(info.min)
+    uint = np.dtype(f'uint{dtype.itemsize * 8}')
+    inf_key = int(np.array([np.inf], dtype=dtype).view(uint)[0])
+    key = search(0, inf_key)
+    if key is None:
+        sign = 1 << (dtype.itemsize * 8 - 1)
+        key = search(sign + 1, sign + inf_key)  # Skip negative zero: zero already searched.
+    return None if key is None else np.array([key], dtype=uint).view(dtype)[0].item()
+
+
+def nodata_analysis(sources, template, resources, requested=None, suggest=False):
+    dtype = np.dtype(template['dtype'])
+    candidates = []
+    if requested is not None:
+        candidates.append(requested)
+    if suggest:
+        info = np.iinfo(dtype) if dtype.kind in 'ui' else np.finfo(dtype)
+        common = [template['nodata'], 0, info.min, info.max, -9999, -1]
+        if dtype.kind == 'f':
+            common = [float('nan'), *common, float('inf'), -float('inf')]
+        for value in common:
+            if value is None:
+                continue
+            try:
+                value = parse_output_nodata(value, dtype)
+            except MergeError:
+                continue
+            if not any(same_number(value, other) for other in candidates):
+                candidates.append(value)
+    def scan(source):
+        occupied = [False] * len(candidates)
+        valid_count = invalid_count = 0
+        for values, valid in valid_value_blocks([source], template, resources['block_size']):
+            data = values[valid]
+            valid_count += int(data.size)
+            invalid_count += int(valid.size - data.size)
+            for i, candidate in enumerate(candidates):
+                if not occupied[i] and np.any(matches_nodata(data, candidate)):
+                    occupied[i] = True
+            advance_work('Checking NoData choices', values.shape[-1] * values.shape[-2])
+        return occupied, valid_count, invalid_count
+    occupied = [False] * len(candidates)
+    valid_count = invalid_count = 0
+    with ThreadPoolExecutor(max_workers=resources['workers']) as executor:
+        for seen, valid, invalid in executor.map(scan, sources):
+            occupied = [a or b for a, b in zip(occupied, seen)]
+            valid_count += valid
+            invalid_count += invalid
+    suggestions = [nodata_text(v) for v, seen in zip(candidates, occupied) if not seen] if suggest else []
+    if suggest and not suggestions:
+        value = find_unused_value(sources, template, resources['block_size'])
+        if value is not None:
+            suggestions.append(nodata_text(value))
+    result = dict(dtype=dtype.name, default_output_uses_internal_mask=template['nodata'] is None,
+                  valid_source_band_samples=valid_count, invalid_source_band_samples=invalid_count,
+                  suggestions=suggestions, suggestion_search_complete=suggest,
+                  requested=nodata_text(requested) if requested is not None else None,
+                  requested_is_safe=not occupied[0] if requested is not None else None,
+                  scope='All valid source samples across all bands, including overlap losers; gaps are not source samples')
+    if suggest:
+        result['replacement_possible'] = bool(suggestions)
+        if suggestions:
+            log('Safe output NoData choices: ' + ', '.join(suggestions))
+            log(f'Rerun with --output-nodata={suggestions[0]} to use scalar NoData without a stored mask')
+        else:
+            log('No unused NoData value exists in this data type; retain the mask to preserve valid data')
+    return result
 
 
 def bit_equal(a, b):
@@ -419,7 +590,8 @@ def slices(part, parent):
 
 
 def create_candidate(path, region, sources, template, readers, edge, policy, compression):
-    nd = template["nodata"]
+    output = output_signature(template)
+    nd = output["nodata"]
     fill = nd if nd is not None else 0
     options = ['TILED=YES', 'BLOCKXSIZE=256', 'BLOCKYSIZE=256', 'BIGTIFF=YES',
                'INTERLEAVE=PIXEL', f'COMPRESS={compression.upper()}',
@@ -433,8 +605,8 @@ def create_candidate(path, region, sources, template, readers, edge, policy, com
         dst.SetProjection(template['crs'])
         dst.SetGeoTransform(tuple(template['transform'].shifted(region.x, region.y)))
         dst.SetMetadataItem('AREA_OR_POINT', template['area_or_point'])
-        if template['nodata_tuple']:
-            dst.SetMetadataItem('NODATA_VALUES', template['nodata_tuple'])
+        if output['nodata_tuple']:
+            dst.SetMetadataItem('NODATA_VALUES', output['nodata_tuple'])
         for i in range(template['count']):
             b = dst.GetRasterBand(i + 1)
             if nd is not None:
@@ -449,8 +621,8 @@ def create_candidate(path, region, sources, template, readers, edge, policy, com
         for part in blocks(region, edge):
             shape = (template["count"], part.h, part.w)
             data = np.full(shape, fill, dtype=template["dtype"])
-            if template['nodata_tuple']:
-                data[:] = np.array([float(v) for v in template['nodata_tuple'].split()],
+            if output['nodata_tuple']:
+                data[:] = np.array([float(v) for v in output['nodata_tuple'].split()],
                                    dtype=template['dtype'])[:, None, None]
             valid = np.zeros(shape, dtype=bool)
             for src in hits:
@@ -482,8 +654,12 @@ def verify_output(path, region, sources, template, readers, edge, policy):
     with opened(path) as dst:
         expected_transform = template["transform"].shifted(region.x, region.y)
         if (dst.RasterXSize != region.w or dst.RasterYSize != region.h or not same_crs(dst.GetProjection(), template['crs']) or
-                Grid(*dst.GetGeoTransform()) != expected_transform or not compatible(signature(dst), {k: template[k] for k in signature(dst)})):
+                Grid(*dst.GetGeoTransform()) != expected_transform or not compatible(signature(dst), {k: output_signature(template)[k] for k in signature(dst)})):
             raise MergeError(f"Verification failed: georeferencing or band metadata in {path.name}")
+        if 'output_nodata' in template and any(
+                dst.GetRasterBand(i).GetMaskFlags() != gdal.GMF_NODATA
+                for i in range(1, dst.RasterCount + 1)):
+            raise MergeError(f'Verification failed: expected scalar NoData without a stored mask in {path.name}')
         ordered = list(reversed(sources)) if policy == "last" else sources
         hits = [s for s in ordered if s.rect.intersection(region)]
         for part in blocks(region, edge):
@@ -607,6 +783,7 @@ def worker_options():
 
 def estimate_density(sources, template, compression, workers):
     """Sample real 256-pixel TIFF-sized blocks with the same lossless codec."""
+    output = output_signature(template)
     raw = template['count'] * np.dtype(template['dtype']).itemsize
     if compression == 'none':
         return raw
@@ -620,9 +797,9 @@ def estimate_density(sources, template, compression, workers):
                     rect = Rect(src.rect.x + int((src.rect.w - w) * fx),
                                 src.rect.y + int((src.rect.h - h) * fy), w, h)
                     values, valid = read(src, rect, readers, template)
-                    values[~valid] = template['nodata'] if template['nodata'] is not None else 0
-                    if template['nodata_tuple']:
-                        for band, value in enumerate(template['nodata_tuple'].split()):
+                    values[~valid] = output['nodata'] if output['nodata'] is not None else 0
+                    if output['nodata_tuple']:
+                        for band, value in enumerate(output['nodata_tuple'].split()):
                             values[band][~valid[band]] = float(value)
                     total += len(zlib.compress(np.moveaxis(values, 0, -1).tobytes(), 6)) + 32
                     pixels += rect.area
@@ -708,6 +885,9 @@ def _run(args, progress):
             check_cancel()
             progress.phase_start('Inspecting inputs', 0, .05)
             sources, template = inventory(source_dir)
+            if args.output_nodata is not None:
+                template['output_nodata'] = parse_output_nodata(args.output_nodata, template['dtype'])
+                report['output_nodata'] = nodata_text(template['output_nodata'])
             resources = resource_plan(args, template, sources, len(sources))
             gdal.SetCacheMax(resources["gdal_cache_bytes"])
             report["resources"] = resources
@@ -726,10 +906,18 @@ def _run(args, progress):
             for source in sources:
                 report["inputs"].append({"name": source.path.name, "grid_window": vars(source.rect),
                                          "dependencies": [{"path": str(p), **fingerprints[p]} for p in source.files]})
+            if args.suggest_nodata or args.output_nodata is not None:
+                progress.phase_start('Checking NoData choices', .2, .05, sum(s.rect.area for s in sources))
+                report['nodata_analysis'] = nodata_analysis(sources, template, resources,
+                    requested=template.get('output_nodata'), suggest=args.suggest_nodata)
+                write_report(output_dir, report)
+                if report['nodata_analysis']['requested_is_safe'] is False:
+                    raise MergeError('Requested output NoData collides with valid source samples; choose another value or retain the mask')
             log("Checking overlap pixels")
             pairs = [(a, b) for i, a in enumerate(sources) for b in sources[i + 1:]
                      if a.rect.intersection(b.rect)]
-            progress.phase_start('Checking overlaps', .2, .15,
+            progress.phase_start('Checking overlaps', .25 if args.suggest_nodata or args.output_nodata is not None else .2,
+                                 .1 if args.suggest_nodata or args.output_nodata is not None else .15,
                                  sum(a.rect.intersection(b.rect).area for a, b in pairs))
             def scan_pair(pair):
                 local = Readers(limit=2)
@@ -823,7 +1011,10 @@ def parser():
     result.add_argument('--cancel-file', type=Path, help=argparse.SUPPRESS)
     result.add_argument("--overlap", choices=("error", "first", "last"), default="error",
                         help="Conflicting valid samples: stop (default), or use filename order priority")
-    result.add_argument("--analyze-only", action="store_true", help="Hash inputs and inspect overlaps without creating mosaics")
+    result.add_argument("--analyze-only", "--dry-run", dest="analyze_only", action="store_true", help="Hash inputs and inspect overlaps without creating mosaics")
+    result.add_argument('--suggest-nodata', action='store_true',
+                        help='Exhaustively find unused scalar NoData values; combine with --dry-run to inspect only')
+    result.add_argument('--output-nodata', help='Fill missing pixels with this value, set scalar NoData, omit stored mask; reject collisions')
     result.add_argument("--compression", choices=("deflate", "none"), default="deflate")
     result.add_argument("--block-size", type=int, help="Processing window edge; default auto, up to 2048 pixels")
     result.add_argument("--cache-mib", type=int, help="Optional GDAL cache ceiling in MiB; otherwise derived from RAM budget")
@@ -887,7 +1078,7 @@ class Job:
 
 def start(input_dir, output_dir, *, target_size=None, base_name='mosaic', cpus=None, ram=None,
           overlap='error', compression='deflate', analyze_only=False, block_size=None,
-          cache_mib=None, python_executable=None):
+          cache_mib=None, suggest_nodata=False, output_nodata=None, python_executable=None):
     """Run from QGIS 4.2 console without blocking its Qt event loop.
 
     Uses QGIS's own Python in a separate process, so its GDAL cache and CPU
@@ -917,6 +1108,10 @@ def start(input_dir, output_dir, *, target_size=None, base_name='mosaic', cpus=N
         command += ['--cpus', str(cpus)]
     if ram is not None:
         command += ['--ram', str(ram)]
+    if suggest_nodata:
+        command += ['--suggest-nodata']
+    if output_nodata is not None:
+        command += [f'--output-nodata={output_nodata}']
     if analyze_only:
         command += ['--analyze-only']
     # Validate before launching; do not send invalid parameters to a background job.

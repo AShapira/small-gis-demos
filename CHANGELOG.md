@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Add `--dry-run --suggest-nodata` to find values unused by valid source samples,
+  including exact searches for holes inside integer/floating-point value ranges.
+- Add `--output-nodata` and matching QGIS API options to encode missing pixels
+  with scalar NoData instead of a stored mask. Recheck collisions before writing
+  and verify all valid values and validity locations without changing data types.
+
 ## 0.3.0 — 2026-09-30
 
 - Make the GeoTIFF merge size target optional: omitting it produces one verified

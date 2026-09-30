@@ -151,6 +151,7 @@ def main():
     p.add_argument('--ram')
     p.add_argument('--single-file', action='store_true', help='Omit the size target to exercise one-file mode')
     p.add_argument('--base-name', default='mosaic')
+    p.add_argument('--output-nodata', help='Exercise explicit scalar NoData instead of a stored mask')
     p.add_argument('--label', help='Fresh result label when retaining evidence from an earlier run')
     args = p.parse_args()
     work = args.work.resolve()
@@ -168,7 +169,8 @@ def main():
     cache_before, exceptions_before = gdal.GetCacheMax(), gdal.GetUseExceptions()
     began = time.monotonic()
     job = module['start'](work / 'inputs', output, target_size=None if args.single_file else '1GiB',
-                          base_name=args.base_name, cpus=args.cpus, ram=args.ram)
+                          base_name=args.base_name, cpus=args.cpus, ram=args.ram,
+                          output_nodata=args.output_nodata)
     result['start_return_seconds'] = time.monotonic() - began
     timer = QTimer(app)
     timer.setInterval(250)
@@ -202,6 +204,12 @@ def main():
             assert all(o['bytes'] <= 1024**3 * 11 // 10 for o in report['outputs'])
         assert [o['name'] for o in report['outputs']] == [
             f'{args.base_name}-{i:05d}.tif' for i in range(1, len(report['outputs']) + 1)]
+        if args.output_nodata is not None:
+            for item in report['outputs']:
+                with gdal.Open(str(output / item['name'])) as ds:
+                    assert all(ds.GetRasterBand(i).GetMaskFlags() == gdal.GMF_NODATA
+                               for i in range(1, ds.RasterCount + 1)), 'Stored mask remains'
+            result['scalar_nodata_without_stored_mask'] = True
         console_log = job.log_path.read_text(encoding='utf-8')
         result['timing_updates'] = console_log.count('rough expected total')
         assert result['timing_updates'] > 2 and 'elapsed ' in console_log

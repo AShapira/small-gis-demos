@@ -89,7 +89,9 @@ The API column refers to keyword arguments of `merger["start"](...)`.
 | `--cpus N` | `cpus` | Available logical CPUs | Positive integer ceiling on worker/codec concurrency and child CPU affinity; never exceeds available CPUs. |
 | `--ram SIZE` | `ram` | 80% of available RAM | Working-memory planning budget, e.g. `8GiB`, capped by available-memory allowance. At least 256 MiB is required. Not an OS-enforced memory ceiling. |
 | `--overlap error\|first\|last` | `overlap` | `"error"` | Stop on conflicting valid samples, or explicitly select first/last valid source in lexical filename order. Identical overlaps and nodata fallback are accepted in every mode. First/last can discard observations. |
-| `--analyze-only` | `analyze_only` | `False` | Hash sources, inspect compatibility/overlaps, and write a report without TIFFs. Default overlap conflict policy still applies. |
+| `--analyze-only`, alias `--dry-run` | `analyze_only` | `False` | Hash sources, inspect compatibility/overlaps, and write a report without TIFFs. Default overlap conflict policy still applies. |
+| `--suggest-nodata` | `suggest_nodata` | `False` | Exhaustively identify unused scalar NoData values across all valid source samples. Combine with `--dry-run` to inspect without merging. Adds console suggestions and a `nodata_analysis` report section. |
+| `--output-nodata VALUE` | `output_nodata` | Omitted / `None` | Recheck that the value is representable and unused by valid samples, fill missing pixels with it, and write scalar NoData without a stored mask. Use a suggested string unchanged, including `nan` for eligible floating-point inputs. |
 | `--compression deflate\|none` | `compression` | `"deflate"` | Lossless DEFLATE compression or uncompressed BigTIFF. |
 | `--block-size N` | `block_size` | Automatic, starts at 2048 | Positive processing-window edge in pixels, reduced if needed for RAM. Independent of the fixed 256-pixel TIFF storage tiles. |
 | `--cache-mib N` | `cache_mib` | Derived from RAM | Positive integer GDAL cache ceiling in MiB. Cache is also limited to one quarter of the RAM budget and 4 GiB. |
@@ -99,7 +101,7 @@ The API column refers to keyword arguments of `merger["start"](...)`.
 Size values accept bytes without a suffix, or `B`, `KB`, `MB`, `GB`, `TB`,
 `KiB`, `MiB`, `GiB`, `TiB` (case-insensitive; decimal quantities accepted).
 Use strings for sizes in `start()`, for example `ram="2GiB"`. CPU, cache and
-window limits are integers; `analyze_only` is a Boolean.
+window limits are integers; `analyze_only` and `suggest_nodata` are Booleans.
 
 The hidden shell parameter `--cancel-file PATH` is an internal child-process
 control: the worker cancels cooperatively if that file exists. `start()` allocates
@@ -128,6 +130,82 @@ and zero remaining time. The final report retains `elapsed_seconds`.
 `start()` relays these lines on QGIS's GUI thread via its Qt timer. Outside a
 running Qt application, inspect the job log named by `job.status()["log"]`.
 
+## Dry run: replace a stored mask with scalar NoData
+
+To check whether the mask QGIS exposes as an alpha band can be replaced:
+
+```bash
+python geotiff-merge/merge_geotiffs.py /data/input /data/nodata-analysis \
+  --dry-run --suggest-nodata
+```
+
+`--dry-run` is an alias for `--analyze-only`. It creates a new report directory,
+reads the inputs and verifies their hashes, but writes no TIFFs. Add
+`--suggest-nodata` to check **all valid samples**, including all bands and all
+sources in overlapping areas. The console lists safe choices and a suggested
+`--output-nodata=VALUE` argument. `report.json` includes `nodata_analysis` with:
+
+- `default_output_uses_internal_mask`: whether the normal merge would store a
+  mask because the sources have no scalar NoData value.
+- `suggestions`: unused values as strings, suitable for passing back unchanged.
+  This is a list of useful choices, not every unused value in the data type.
+- `replacement_possible`: whether at least one common unused value was found.
+- `dtype`, valid/invalid source band-sample counts, and, when a value was supplied,
+  `requested` and `requested_is_safe`. Counts include repeated overlap samples;
+  they do not count gaps outside source footprints.
+
+For example, **only if `65535` was suggested for your inputs**, run:
+
+```bash
+python geotiff-merge/merge_geotiffs.py /data/input /data/merged-nodata \
+  --output-nodata=65535
+```
+
+In the QGIS console:
+
+```python
+analysis = merger["start"](r"D:\rasters", r"D:\nodata-analysis",
+                            analyze_only=True, suggest_nodata=True)
+# Once analysis.done is True:
+choices = analysis.result()["nodata_analysis"]["suggestions"]
+# If choices is nonempty, use a fresh output directory:
+job = merger["start"](r"D:\rasters", r"D:\merged-nodata",
+                      output_nodata=choices[0])
+```
+
+The merge **rescans for collisions**, so a suggestion from an older dry run
+cannot silently invalidate changed inputs. A collision stops the run before any
+output TIFF is written, even if `--overlap first/last` would discard that source's
+value. An out-of-range value, fractional integer NoData, or a floating-point value
+requiring narrowing/rounding is rejected. Use the exact suggested string;
+`--output-nodata=-9999` with `=` also handles negative/scientific notation safely.
+
+Only invalid pixels and uncovered output areas are filled with the chosen value.
+Valid sample bits and the data type remain unchanged. The output uses scalar
+NoData metadata and **no stored internal mask or alpha band**. GDAL can still
+provide an implicit validity mask derived from NoData; that is not an extra stored
+band. Verification checks the new NoData metadata, absence of a stored mask,
+every required valid sample, and identical validity locations. Existing scalar
+or RGB tuple NoData can be replaced explicitly in the same way; source masks and
+NoData always determine which original pixels are valid.
+
+The search first tests common values, then searches unused representable values
+with bounded-memory occupancy maps and additional full passes as needed. It can
+find holes inside the observed range, not just values outside its minimum and
+maximum. Duplicate-heavy data covering much of a large type's domain can make
+this exhaustive fallback expensive. `nan` is suggested for floating-point data
+only when no valid NaN exists; zero collides with either sign of valid zero.
+One scalar value must be unused across **every band** in a multiband output.
+No pixel sampling or data-type conversion is used.
+
+If every possible value is already valid somewhere, no scalar NoData value can
+replace the mask without losing information. Keep the mask wherever missing
+pixels need representation. An entirely valid output needs neither a mask nor
+NoData, but automatic removal of redundant masks is not implemented.
+Omitting these options retains the existing merge behavior. `--suggest-nodata`
+can also accompany a real merge; it reports choices but does not apply one
+unless `--output-nodata` is supplied.
+
 ## What “data unchanged” means
 
 The default policy preserves every **valid, decoded source band sample** at
@@ -148,6 +226,8 @@ Verification is mandatory and exhaustive, with no numerical tolerance:
    samples nearby. Source nodata never overwrites valid data from another source.
 4. It checks CRS, transform, dimensions, dtype, band count, nodata, scales,
    offsets, units, descriptions, color interpretation, and Area/Point semantics.
+   With `--output-nodata`, it verifies the explicitly requested output NoData
+   convention instead of requiring the original NoData metadata.
 5. It verifies that output rectangles do not overlap and cover every source
    footprint, checks actual TIFF byte lengths, and records output SHA-256 hashes.
 
@@ -275,6 +355,8 @@ compression and spatial gaps can still produce extra output files.
   normalized to nodata. Masks that mark nodata-valued pixels valid are rejected
   because that distinction cannot be encoded by the output nodata convention.
   Without nodata, all bands must share a validity mask, stored inside the TIFF.
+  An explicit safe `--output-nodata` instead encodes per-band validity as scalar
+  NoData and removes the need for that stored mask.
 - Overlap checking examines intersecting source pairs and all their overlap
   samples; heavily overlapping collections can be expensive. Full verification
   and before/after hashing intentionally add substantial I/O. There is no

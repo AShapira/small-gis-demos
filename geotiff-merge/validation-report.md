@@ -1,6 +1,41 @@
 # GeoTIFF merge validation — 2026-09-30
 
-## Optional-size, naming and timing update
+## NoData suggestions and replacement update
+
+The updated script passed **56 generated-data tests** in QGIS 4.2's Windows
+Python 3.12.13 / GDAL 3.13.1. Coverage includes full Byte domains with no unused
+value, unused values inside UInt8/UInt16 ranges, Int32/Float32/Float64 fallback
+searches, valid NaNs and signed zeros, invalid/out-of-range values, collisions
+after a previous dry run, existing scalar/tuple NoData, explicit masks, and the
+QGIS asynchronous API. Deliberately adding a stored mask to a scalar-NoData output
+was detected by verification. All previous tests also passed.
+
+Tested script SHA-256: `9d25206ae3663920cc2c75c334bdade72cac3195562cdadde900cb8d974cccf7`.
+
+The dry run reused the same **17 Sentinel-derived inputs, 5,134,938,324 bytes**.
+`--dry-run --suggest-nodata --cpus 8 --ram 2GiB` checked **5,134,614,378 valid
+source band samples** and **150 invalid source band samples**. It found that
+`0` is unused by valid samples across all three bands, completed in **16.656 s**,
+wrote no TIFFs, and confirmed unchanged input hashes. This suggestion is specific
+to this dataset; generated tests separately cover valid zero-valued channels.
+
+A subsequent single-file merge with `--output-nodata=0 --cpus 8 --ram 2GiB`
+rescanned for collisions and produced **`sentinel-nodata-00001.tif`**, **3,197,180,843
+bytes**, in **114.391 s** including internal verification. Every band used scalar
+NoData with `GMF_NODATA`, with no stored mask. All required source samples passed
+verification and source hashes remained unchanged. A separate full comparison
+against the unsplit reference passed for **1,711,276,032 pixels**, **5,133,827,946
+valid band samples**, and **150 invalid band samples**; the reference hash was
+unchanged. The comparison is additional work excluded from the merge time.
+
+The real Qt event loop recorded **460 heartbeat ticks** and **29 rough timing
+updates**; the parent GDAL cache and exception settings were unchanged. Full
+desktop validation remains blocked by Application Control as described below.
+Raw dry-run reports and `validation-scalar-nodata.json` are retained locally and
+excluded from Git. Compilation and `git diff --check` passed. These results are
+from local validation; remote CI has not been run for this update.
+
+## Version 0.3.0: optional size, naming and timing
 
 The updated script passed **41 generated-data tests** in QGIS 4.2's Windows
 Python 3.12.13 / GDAL 3.13.1. New coverage includes omitted size targets, custom
