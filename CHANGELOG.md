@@ -1,12 +1,20 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-09-30
 
+- Extend explicit lossless compression selection to DEFLATE, LZW, ZSTD, LZMA,
+  PackBits and uncompressed TIFF, with codec levels and reversible predictors.
+  Probe runtime support, account for codec memory, estimate sizes using the
+  selected codec, and verify the actual output compression.
+- Document all codec choices and measured tradeoffs from the retained Sentinel
+  compression benchmark, with a sanitized numerical evidence extract.
 - Add `--dry-run --suggest-nodata` to find values unused by valid source samples,
   including exact searches for holes inside integer/floating-point value ranges.
 - Add `--output-nodata` and matching QGIS API options to encode missing pixels
   with scalar NoData instead of a stored mask. Recheck collisions before writing
   and verify all valid values and validity locations without changing data types.
+- Validate 64 generated-data tests and medium Sentinel merges with independent
+  full-reference comparisons for scalar NoData and ZSTD compression.
 
 ## 0.3.0 — 2026-09-30
 

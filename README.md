@@ -51,5 +51,5 @@ Public validation summaries retain test outcomes with local paths redacted.
 - Container-backed integration and real benchmark runs are separate, opt-in
   operations; unit tests do not start services or download imagery.
 
-Release: **0.3.0**. See [CHANGELOG.md](CHANGELOG.md) and
+Release: **0.4.0**. See [CHANGELOG.md](CHANGELOG.md) and
 [third-party notices](THIRD_PARTY_NOTICES.md).

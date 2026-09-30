@@ -85,6 +85,106 @@ class MergeTests(unittest.TestCase):
         # Byte comparison also catches float signed-zero / NaN payload changes.
         self.assertEqual(actual[valid].tobytes(), expected[valid].tobytes())
 
+    def test_all_lossless_codecs_preserve_integer_samples_masks_and_limits(self):
+        values = np.random.default_rng(3).integers(0, 65535, (512, 512), dtype='uint16')
+        valid = np.ones(values.shape, dtype=bool)
+        valid[10:20, 10:20] = False
+        self.make('a.tif', values, mask=valid)
+        for codec in merge.LOSSLESS_CODECS:
+            with self.subTest(codec=codec):
+                self.output = self.root / codec
+                report = self.run_merge('--compression', codec, '--target-size', '200KB', '--cpus', '2', '--ram', '1GiB')
+                self.assert_mosaic(values, valid)
+                self.assertTrue(all(o['bytes'] <= 220000 for o in report['outputs']))
+                for item in report['outputs']:
+                    with gdal.Open(str(self.output / item['name'])) as ds:
+                        self.assertEqual(ds.GetMetadataItem('COMPRESSION', 'IMAGE_STRUCTURE') or 'NONE', codec.upper())
+                self.assertEqual(report['compression_settings']['codec'], codec)
+
+    def test_codecs_and_predictors_preserve_float_payload_bits(self):
+        bits = np.array([[0x80000000, 0, 0x7FC01234, 0x7F800000, 0xFF800000, 1, 0x3F800001]], dtype='uint32')
+        values = bits.view('float32')
+        self.make('a.tif', values)
+        for codec in merge.LOSSLESS_CODECS:
+            for predictor in ((1, 2, 3) if codec in ('deflate', 'lzw', 'zstd') else (1,)):
+                with self.subTest(codec=codec, predictor=predictor):
+                    self.output = self.root / f'{codec}-p{predictor}'
+                    self.run_merge('--compression', codec, '--predictor', str(predictor), '--cpus', '1', '--ram', '1GiB')
+                    self.assert_mosaic(values, np.ones(values.shape, dtype=bool))
+
+    def test_codec_levels_and_integer_predictor(self):
+        self.make('a.tif', np.arange(100, dtype='int16').reshape(10, 10))
+        for codec, level, predictor in [('deflate', 9, 2), ('zstd', 3, 2), ('lzma', 0, 1), ('lzw', None, 2)]:
+            with self.subTest(codec=codec):
+                self.output = self.root / codec
+                options = ['--compression', codec, '--predictor', str(predictor), '--cpus', '1', '--ram', '1GiB']
+                if level is not None:
+                    options += ['--compression-level', str(level)]
+                report = self.run_merge(*options)
+                self.assertEqual(report['compression_settings']['level'], level)
+                self.assertEqual(report['compression_settings']['predictor'], predictor)
+                self.assert_mosaic(np.arange(100, dtype='int16').reshape(10, 10), np.ones((10, 10), dtype=bool))
+
+    def test_invalid_compression_settings_fail_before_outputs(self):
+        self.make('a.tif', np.ones((1, 1), dtype='uint8'))
+        cases = [('deflate', '0', '1'), ('zstd', '23', '1'), ('lzma', '10', '1'),
+                 ('none', '3', '1'), ('packbits', None, '2'), ('lzw', None, '3')]
+        for i, (codec, level, predictor) in enumerate(cases):
+            self.output = self.root / f'invalid-{i}'
+            options = ['--compression', codec, '--predictor', predictor]
+            if level is not None:
+                options += ['--compression-level', level]
+            with self.subTest(codec=codec, level=level, predictor=predictor):
+                with self.assertRaises(merge.MergeError):
+                    self.run_merge(*options)
+                self.assertFalse(list(self.output.rglob('*.tif')))
+
+    def test_missing_codec_fails_without_fallback(self):
+        self.make('a.tif', np.ones((1, 1), dtype='uint8'))
+        class MissingCodec:
+            def GetMetadataItem(self, key):
+                return '<CreationOptionList><Option name="COMPRESS"><Value>NONE</Value></Option></CreationOptionList>'
+        with patch.object(merge.gdal, 'GetDriverByName', return_value=MissingCodec()):
+            with self.assertRaisesRegex(merge.MergeError, 'does not support zstd'):
+                self.run_merge('--compression', 'zstd')
+        self.assertFalse(list(self.output.rglob('*.tif')))
+
+    def test_verifier_rejects_wrong_actual_compression(self):
+        self.make('a.tif', np.ones((2, 2), dtype='uint8'))
+        original = merge.create_candidate
+        def wrong_codec(path, region, sources, template, *args):
+            changed = dict(template, compression_settings=dict(template['compression_settings'],
+                           creation_options=['COMPRESS=NONE']))
+            return original(path, region, sources, changed, *args)
+        with patch.object(merge, 'create_candidate', side_effect=wrong_codec):
+            with self.assertRaisesRegex(merge.MergeError, 'GDAL wrote NONE'):
+                self.run_merge('--compression', 'deflate')
+        self.assertFalse(list(self.output.glob('*.tif')))
+
+    def test_codec_memory_reserves_are_included_in_budget(self):
+        self.make('a.tif', np.ones((1, 1), dtype='uint8'))
+        sources, template = merge.inventory(self.source)
+        for codec, level in [('lzma', 9), ('zstd', 22)]:
+            with self.subTest(codec=codec):
+                args = self.args('--compression', codec, '--compression-level', str(level), '--ram', '2GiB', '--cpus', '8')
+                with patch.object(merge, 'available_resources', return_value=(32, 16 * 1024**3)):
+                    plan = merge.resource_plan(args, template, sources, 10)
+                self.assertGreater(plan['estimated_codec_thread_bytes'], 4 * 1024**2)
+                self.assertLessEqual(plan['workers'] * plan['estimated_worker_bytes'] +
+                    plan['gdal_cache_bytes'] + plan['estimated_codec_pool_bytes'] + 128 * 1024**2,
+                    plan['ram_budget_bytes'])
+
+    def test_async_compression_options(self):
+        values = np.array([[0, 1, 77]], dtype='uint16')
+        self.make('a.tif', values, mask=[[1, 1, 0]])
+        job = merge.start(self.source, self.output, compression='ZSTD', compression_level=3,
+                          predictor=2, output_nodata='65535', cpus=1, ram='1GiB')
+        job.process.wait(timeout=30)
+        report = job.result()
+        self.assertEqual(report['compression_settings']['codec'], 'zstd')
+        self.assertEqual(report['compression_settings']['level'], 3)
+        self.assert_mosaic(values, np.array([[1, 1, 0]], dtype=bool))
+
     def test_dry_run_suggests_nodata_without_writing_tiffs(self):
         self.make('a.tif', np.array([[0, 1, 99]], dtype='uint16'), mask=[[1, 1, 0]])
         proc = subprocess.run([sys.executable, str(SCRIPT), str(self.source), str(self.output),

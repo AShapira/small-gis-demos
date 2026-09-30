@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "description": "Sanitized lossless conversion measurements from the retained Sentinel-2 RGB GeoServer study; not merger timings.",
+  "source_report_sha256": "f34da07dedd9f8de3024f85bcb2f771275496b4d6c260568b96c7b4e4ee4b62d",
+  "source_report": "geoserver-compression-final-report.md, Source compression: storage, conversion and observed rendering",
+  "study_completed": "2026-09-16",
+  "width": 32768,
+  "height": 52224,
+  "bands": 3,
+  "dtype": "Byte",
+  "crs": "EPSG:32636",
+  "pixel_size_metres": 10,
+  "includes_overviews": true,
+  "conversion_threads": 4,
+  "storage_tile_edge": 512,
+  "limitations": [
+    "One retained RGB dataset, not scientific single-band measurements.",
+    "Uncompressed conversion timing is zero because the canonical file was reused.",
+    "The merger uses 256-pixel tiles, no overviews and mandatory verification; these are not merger duration estimates.",
+    "LZMA was not measured in this study."
+  ],
+  "variants": [
+    {
+      "id": "none",
+      "manifest_sha256": "8e97692e1d3d724b3ca7f4a6beb94384946565c43921f031bb302d0397961a68",
+      "bytes": 6856300738,
+      "wall_seconds": 0,
+      "cpu_seconds": 0,
+      "peak_rss_bytes": 0,
+      "sha256": "bcd899aef8ba89374f88ced1c559a16789e07fa334f2e95f68ca28b6f6e18419",
+      "saved_percent": 0.0,
+      "mean_run_p95_wms_view_seconds": 0.1984
+    },
+    {
+      "id": "lzw",
+      "manifest_sha256": "c9d9a2c111105f35eb3f336d3643f5dde4de233d807d06b0ec155882be11aafe",
+      "bytes": 4529885815,
+      "wall_seconds": 19.30390936200274,
+      "cpu_seconds": 63.280612000000005,
+      "peak_rss_bytes": 661708800,
+      "creation_options": [
+        "BIGTIFF=YES",
+        "TILED=YES",
+        "BLOCKXSIZE=512",
+        "BLOCKYSIZE=512",
+        "INTERLEAVE=PIXEL",
+        "COMPRESS=LZW",
+        "COPY_SRC_OVERVIEWS=YES",
+        "NUM_THREADS=4",
+        "PREDICTOR=2"
+      ],
+      "sha256": "0d4c02a3386cc30277bbd138399c6598dd4307c199306ee5a1eb97efe4203b54",
+      "saved_percent": 33.931051333647034,
+      "mean_run_p95_wms_view_seconds": 0.2193
+    },
+    {
+      "id": "deflate",
+      "manifest_sha256": "6e4e3096b03002a0b8557bec76d3a3f427b318145dc704d0df19956a3acb757d",
+      "bytes": 3869733979,
+      "wall_seconds": 34.515836742997635,
+      "cpu_seconds": 102.23860400000001,
+      "peak_rss_bytes": 635424768,
+      "creation_options": [
+        "BIGTIFF=YES",
+        "TILED=YES",
+        "BLOCKXSIZE=512",
+        "BLOCKYSIZE=512",
+        "INTERLEAVE=PIXEL",
+        "COMPRESS=DEFLATE",
+        "COPY_SRC_OVERVIEWS=YES",
+        "NUM_THREADS=4",
+        "PREDICTOR=2",
+        "ZLEVEL=6"
+      ],
+      "sha256": "1aa368895e44143922d42c582110f6a6aa26a55b049a8d124e6b3eabdd2ef262",
+      "saved_percent": 43.55944806282213,
+      "mean_run_p95_wms_view_seconds": 0.2225
+    },
+    {
+      "id": "packbits",
+      "manifest_sha256": "80b97435112bfdc260d5d4a51f2ad29dca46eff22af346258b615f2b39579d1b",
+      "bytes": 6660372400,
+      "wall_seconds": 19.009313256996393,
+      "cpu_seconds": 20.79629599999998,
+      "peak_rss_bytes": 634564608,
+      "creation_options": [
+        "BIGTIFF=YES",
+        "TILED=YES",
+        "BLOCKXSIZE=512",
+        "BLOCKYSIZE=512",
+        "INTERLEAVE=PIXEL",
+        "COMPRESS=PACKBITS",
+        "COPY_SRC_OVERVIEWS=YES",
+        "NUM_THREADS=4"
+      ],
+      "sha256": "913ce6b7154a30779f2b7a1bd6888c258280885da1141422de30cafe612d4ffe",
+      "saved_percent": 2.857639206432372,
+      "mean_run_p95_wms_view_seconds": 0.2007
+    },
+    {
+      "id": "zstd3",
+      "manifest_sha256": "c7e9a75047f2c2d5f06746578ae847751c508a6c78999535e329e8f8db0e6ccb",
+      "bytes": 3860616056,
+      "wall_seconds": 17.656971696000255,
+      "cpu_seconds": 39.165058000000016,
+      "peak_rss_bytes": 643596288,
+      "creation_options": [
+        "BIGTIFF=YES",
+        "TILED=YES",
+        "BLOCKXSIZE=512",
+        "BLOCKYSIZE=512",
+        "INTERLEAVE=PIXEL",
+        "COMPRESS=ZSTD",
+        "COPY_SRC_OVERVIEWS=YES",
+        "NUM_THREADS=4",
+        "PREDICTOR=2",
+        "ZSTD_LEVEL=3"
+      ],
+      "sha256": "614ffbbed30023ff7490fe769971714893f9817c40f819606821398b41c982be",
+      "saved_percent": 43.6924341051272,
+      "mean_run_p95_wms_view_seconds": 0.2068
+    },
+    {
+      "id": "zstd9",
+      "manifest_sha256": "74f2080a0e11943bb3070ab1fff88a089e7f6525789194cf265c9221be39815c",
+      "bytes": 3777670674,
+      "wall_seconds": 30.473927166000067,
+      "cpu_seconds": 110.026375,
+      "peak_rss_bytes": 680374272,
+      "creation_options": [
+        "BIGTIFF=YES",
+        "TILED=YES",
+        "BLOCKXSIZE=512",
+        "BLOCKYSIZE=512",
+        "INTERLEAVE=PIXEL",
+        "COMPRESS=ZSTD",
+        "COPY_SRC_OVERVIEWS=YES",
+        "NUM_THREADS=4",
+        "PREDICTOR=2",
+        "ZSTD_LEVEL=9"
+      ],
+      "sha256": "a15225a97239431aa1051d711eb98cb0bbac14c1290612e7b6697417ac50413e",
+      "saved_percent": 44.90220282983158,
+      "mean_run_p95_wms_view_seconds": 0.2075
+    }
+  ],
+  "serving_latency_context": "Mean of two run-level p95 direct-WMS complete-view latencies, 8 vCPU/16 GiB; not isolated decoder time."
+}

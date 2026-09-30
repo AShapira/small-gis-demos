@@ -92,7 +92,9 @@ The API column refers to keyword arguments of `merger["start"](...)`.
 | `--analyze-only`, alias `--dry-run` | `analyze_only` | `False` | Hash sources, inspect compatibility/overlaps, and write a report without TIFFs. Default overlap conflict policy still applies. |
 | `--suggest-nodata` | `suggest_nodata` | `False` | Exhaustively identify unused scalar NoData values across all valid source samples. Combine with `--dry-run` to inspect without merging. Adds console suggestions and a `nodata_analysis` report section. |
 | `--output-nodata VALUE` | `output_nodata` | Omitted / `None` | Recheck that the value is representable and unused by valid samples, fill missing pixels with it, and write scalar NoData without a stored mask. Use a suggested string unchanged, including `nan` for eligible floating-point inputs. |
-| `--compression deflate\|none` | `compression` | `"deflate"` | Lossless DEFLATE compression or uncompressed BigTIFF. |
+| `--compression CODEC` | `compression` | `"deflate"` | `deflate`, `lzw`, `zstd`, `lzma`, `packbits`, or `none` (case-insensitive). Only lossless data encoding; installed GDAL support is checked. See the codec comparison below. |
+| `--compression-level N` | `compression_level` | Codec default | DEFLATE: 1–9, default 6; ZSTD: 1–22, default 9; LZMA: 0–9, default 6. Rejected for codecs without a level. |
+| `--predictor 1\|2\|3` | `predictor` | `1` | Reversible prediction: 1 none, 2 horizontal, 3 floating-point only. Values 2/3 require LZW, DEFLATE or ZSTD. |
 | `--block-size N` | `block_size` | Automatic, starts at 2048 | Positive processing-window edge in pixels, reduced if needed for RAM. Independent of the fixed 256-pixel TIFF storage tiles. |
 | `--cache-mib N` | `cache_mib` | Derived from RAM | Positive integer GDAL cache ceiling in MiB. Cache is also limited to one quarter of the RAM budget and 4 GiB. |
 | `-h`, `--help` | — | — | Print shell usage and exit without processing. |
@@ -129,6 +131,116 @@ and zero remaining time. The final report retains `elapsed_seconds`.
 
 `start()` relays these lines on QGIS's GUI thread via its Qt timer. Outside a
 running Qt application, inspect the job log named by `job.status()["log"]`.
+
+## Choosing lossless compression
+
+Use `--compression CODEC` in the shell, or `compression="CODEC"` in `start()`.
+Names are case-insensitive. **All available choices in this script** are
+`deflate`, `lzw`, `zstd`, `lzma`, `packbits`, and `none`. No choice enables lossy
+encoding. Valid sample bits, masks/NoData semantics and supported metadata still
+undergo the same exhaustive verification.
+
+```bash
+# ZSTD level 3 with integer horizontal prediction: the benchmark's faster ZSTD profile.
+python geotiff-merge/merge_geotiffs.py /data/input /data/merged-zstd \
+  --compression zstd --compression-level 3 --predictor 2
+
+# The benchmark's smallest tested lossless profile.
+python geotiff-merge/merge_geotiffs.py /data/input /data/merged-zstd9 \
+  --compression zstd --compression-level 9 --predictor 2
+
+# LZW with horizontal prediction; no compression-level parameter for LZW.
+python geotiff-merge/merge_geotiffs.py /data/input /data/merged-lzw \
+  --compression lzw --predictor 2
+```
+
+QGIS console equivalent:
+
+```python
+job = merger["start"](r"D:\rasters", r"D:\merged-zstd",
+                      compression="zstd", compression_level=3, predictor=2)
+```
+
+| Codec | Level setting | Predictor support | Default settings when selected |
+| --- | --- | --- | --- |
+| `deflate` | `--compression-level 1..9` | `1`, `2`, `3` | Level 6, predictor 1. This remains the overall default. |
+| `lzw` | No level; specifying one is an error | `1`, `2`, `3` | Predictor 1 |
+| `zstd` | `--compression-level 1..22` | `1`, `2`, `3` | Level 9, predictor 1 |
+| `lzma` | `--compression-level 0..9` | Only `1` | Preset 6 |
+| `packbits` | No level | Only `1` | No prediction |
+| `none` | No level | Only `1` | Uncompressed data tiles |
+
+`--predictor 1` applies no prediction and preserves the previous default.
+`2` applies reversible horizontal differencing; the historical integer RGB
+benchmark used this for LZW, DEFLATE and ZSTD. `3` applies reversible
+floating-point prediction and requires Float32/Float64 inputs. These predictors
+do not resample or change decoded values. Level ranges are deliberately explicit;
+DEFLATE uses the portable 1–9 range even if a GDAL build supports higher levels.
+LZMA and high ZSTD levels receive larger per-worker/codec memory reserves in the
+RAM planner, which can reduce concurrency or require a larger RAM budget.
+
+The installed GDAL must support the selected codec. A small in-memory TIFF probe
+checks actual compression, predictor and sample-bit preservation before input
+hashing/merging; unavailable codecs or unsupported combinations fail clearly.
+There is no silent substitution. Resolved settings are recorded under
+`compression_settings` in `report.json`. Actual output compression and predictor
+are checked again after writing. Sample-based size estimates use the selected
+codec, level and predictor; the final 110% size check still decides whether to split.
+Internal validity masks, when used, remain GDAL's compressed 1-bit masks; the
+codec selection controls the raster data tiles, not that internal mask encoding.
+
+### What the existing compression benchmark measured
+
+The [completed study](../docs/benchmark-results.md) used one 32,768 × 52,224,
+three-band Byte Sentinel-derived RGB mosaic. The numbers below were copied from
+its retained conversion manifests and checked against its final report. A
+[sanitized numerical extract](compression-benchmark.json) records exact bytes,
+times, creation options and source-manifest hashes. GB here means decimal GB.
+
+| Historical configuration | TIFF size including overviews | Saved vs uncompressed | Conversion wall time | Conversion CPU time |
+| --- | ---: | ---: | ---: | ---: |
+| `none` | 6.856 GB | 0.0% | Reused reference | Reused reference |
+| `lzw`, predictor 2 | 4.530 GB | 33.9% | 19.30 s | 63.28 s |
+| `deflate`, level 6, predictor 2 | 3.870 GB | 43.6% | 34.52 s | 102.24 s |
+| `packbits` | 6.660 GB | 2.9% | 19.01 s | 20.80 s |
+| `zstd`, level 3, predictor 2 | 3.861 GB | 43.7% | 17.66 s | 39.17 s |
+| `zstd`, level 9, predictor 2 | 3.778 GB | 44.9% | 30.47 s | 110.03 s |
+| `lzma` | Not measured | Not measured | Not measured | Not measured |
+
+All measured lossless variants matched the reference's decoded base and overview
+pixels. This was a four-thread conversion with 512-pixel tiles and overviews.
+The merger uses 256-pixel tiles, does not create overviews, and performs additional
+verification and input hashing. **These sizes and times are not predictions for
+a merge, and they do not establish a winner for single-band elevation, reflectance,
+categorical or floating-point rasters.** In particular, the default merger's
+predictor 1 differs from the benchmark's predictor 2.
+
+| Choice | Benefits supported by these results | Costs and limits |
+| --- | --- | --- |
+| `none` | Straightforward uncompressed baseline; no data-codec work. | Largest measured storage footprint. The zero conversion time in the raw report means reference reuse, not an instantaneous write. |
+| `lzw` | Converted faster than DEFLATE-6 while saving about one third of storage. | Larger than DEFLATE and either tested ZSTD profile; ZSTD-3 also converted faster in this run. |
+| `deflate` | Saved 43.6%, close to ZSTD-3; keep the existing default when you want unchanged codec settings. | Took roughly twice ZSTD-3's conversion wall time in this dataset; level/predictor and data content affect the tradeoff. |
+| `zstd` | Level 3 combined 43.7% savings with the shortest measured compressed-lossless conversion. Level 9 gave the smallest lossless result, 44.9% savings. | Level 9 took more wall/CPU time than level 3. Confirm reader support in downstream software; codec availability alone does not prove compatibility in every application. |
+| `packbits` | Lowest conversion CPU time among the measured compressed-lossless profiles. | Saved only 2.9% on this photographic data, retaining almost the entire uncompressed storage cost. |
+| `lzma` | An additional general-purpose lossless codec, validated by the merger's exact-bit tests on this QGIS installation. | No historical storage, conversion or serving result supports a speed/size recommendation. Its larger planning reserve can reduce parallelism; measure your own data before selecting it for throughput. |
+
+The GeoServer study also measured rendering: for example, mean run-level p95
+direct-WMS complete-view latency was 0.1984 s for uncompressed, 0.2007 s for
+PackBits, 0.2193 s for LZW, 0.2225 s for DEFLATE, and 0.2068/0.2075 s for
+ZSTD-3/9. These were two runs on shared hardware, not isolated decoder timings
+or proof of statistical superiority. File size alone did not determine serving
+performance. Nominal TIFFs also reported COG layout, so the study did not isolate
+a unique COG layout advantage.
+
+JPEG-80 achieved 0.412 GB in that study but changed pixels; it is not offered.
+GDAL has other specialised options (CCITT for packed 1-bit data, and LERC,
+WebP and JPEG-XL modes). They are not exposed by this script: their specialised
+lossless modes have not been validated for its full supported data-type and
+bit-pattern contract. COG is a layout/driver choice, not another compression name;
+PNG/GeoPackage outputs are outside this TIFF writer.
+
+Codec and predictor behavior follows the
+[GDAL GeoTIFF creation options](https://gdal.org/en/stable/drivers/raster/gtiff.html#creation-options).
 
 ## Dry run: replace a stored mask with scalar NoData
 
@@ -209,7 +321,8 @@ unless `--output-nodata` is supplied.
 ## What “data unchanged” means
 
 The default policy preserves every **valid, decoded source band sample** at
-its original pixel location. It uses lossless DEFLATE, no reprojection,
+its original pixel location. It uses the selected lossless codec (DEFLATE by
+default), no reprojection,
 resampling, blending, arithmetic, or dtype conversion. `--compression none`
 disables compression. Output files are BigTIFFs with 256 × 256 pixel tiles.
 
@@ -295,7 +408,8 @@ overviews, masks, block padding, and TIFF overhead. Each final file must be at m
 of files is an outcome. This script does not promise the minimum possible count.
 
 The planner estimates compression from eight sampled 256-pixel windows per
-source using lossless DEFLATE, partitions spatial rectangles on pixel boundaries,
+source using the selected GDAL codec, level and predictor, partitions spatial
+rectangles on pixel boundaries,
 and trims footprint-free outer space. Sampling is for size estimation only;
 verification always checks every required sample.
 It can split a single input that is larger than the limit. After writing a

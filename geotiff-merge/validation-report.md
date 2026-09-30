@@ -1,5 +1,49 @@
 # GeoTIFF merge validation — 2026-09-30
 
+## Explicit lossless compression update
+
+The script passed **64 generated-data tests** in QGIS 4.2's Windows Python
+3.12.13 / GDAL 3.13.1. The installed GTiff driver advertised all six offered
+codecs: DEFLATE, LZW, ZSTD, LZMA, PackBits and NONE. Each passed actual-codec,
+size-cap, sample and mask checks. Tests also cover compression levels, reversible
+predictors, exact floating-point bits (signed zero, infinities and NaN payloads),
+codec memory accounting, invalid combinations, a simulated unavailable codec,
+deliberately incorrect output compression, and asynchronous QGIS API forwarding.
+
+Tested script SHA-256: `353ac07bfdb399c823d4ea20ccc2727b70bf9fc813180eb6ecd7a2832f89e3d5`.
+
+A medium real-data run reused the **17 Sentinel-derived inputs totaling
+5,134,938,324 bytes** with ZSTD level 3, predictor 2, scalar NoData 0, a 1 GiB
+target, 8 CPUs and a 2 GiB RAM budget. It produced three verified TIFFs:
+
+| File | Bytes |
+| --- | ---: |
+| `mosaic-00001.tif` | 1,082,662,775 |
+| `mosaic-00002.tif` | 895,006,330 |
+| `mosaic-00003.tif` | 874,356,041 |
+
+Total: **2,852,025,146 bytes**. Every file was below the 110% cap of 1,181,116,006
+bytes; the first was slightly above the nominal target and correctly accepted.
+Resolved creation options were `COMPRESS=ZSTD`, `ZSTD_LEVEL=3`, `PREDICTOR=2`;
+the closed outputs' compression/predictor and scalar-NoData mask flags passed.
+Merge plus internal verification took **70.218 seconds**. All required source
+samples passed and input hashes were unchanged.
+
+An additional independent comparison against the unsplit reference passed for
+**1,711,276,032 pixels**, **5,133,827,946 valid band samples**, and **150 invalid
+band samples**. The reference hash was unchanged. The Qt loop recorded 284
+heartbeat ticks and 21 timing updates; parent GDAL settings were unchanged.
+Full desktop validation remains blocked by Application Control as below.
+This is an observed validation run, not a controlled codec-speed comparison;
+timing excludes the independent reference check. The README's codec tradeoffs
+instead use the retained historical compression study and its documented scope.
+
+Raw evidence is retained locally as `validation-zstd3.json` and excluded from
+Git. The sanitized historical metrics are in `compression-benchmark.json`.
+Compilation, parameter-documentation and benchmark-number consistency checks,
+and `git diff --check` passed. Remote CI results are recorded separately in
+GitHub Actions for each commit/tag.
+
 ## NoData suggestions and replacement update
 
 The updated script passed **56 generated-data tests** in QGIS 4.2's Windows

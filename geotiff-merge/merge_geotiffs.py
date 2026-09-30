@@ -22,7 +22,6 @@ import subprocess
 import time
 import threading
 import uuid
-import zlib
 
 import numpy as np
 from osgeo import gdal, gdal_array, osr
@@ -589,12 +588,106 @@ def slices(part, parent):
             slice(part.x - parent.x, part.x - parent.x + part.w))
 
 
+# General-purpose codecs that preserve arbitrary supported sample bits.
+LOSSLESS_CODECS = ('deflate', 'lzw', 'zstd', 'lzma', 'packbits', 'none')
+LEVEL_OPTIONS = {'deflate': ('ZLEVEL', 1, 9, 6),
+                 'zstd': ('ZSTD_LEVEL', 1, 22, 9),
+                 'lzma': ('LZMA_PRESET', 0, 9, 6)}
+
+
+def compression_settings(args, dtype):
+    codec, level, predictor = args.compression, args.compression_level, args.predictor
+    options = [f'COMPRESS={codec.upper()}']
+    if codec in LEVEL_OPTIONS:
+        name, low, high, default = LEVEL_OPTIONS[codec]
+        level = default if level is None else level
+        if not low <= level <= high:
+            raise MergeError(f'{codec} compression level must be {low}..{high}')
+        options.append(f'{name}={level}')
+    elif level is not None:
+        raise MergeError(f'--compression-level is not supported with {codec}')
+    if predictor != 1 and codec not in ('lzw', 'deflate', 'zstd'):
+        raise MergeError('--predictor 2/3 requires lzw, deflate or zstd')
+    dtype = np.dtype(dtype)
+    if predictor == 3 and dtype.kind != 'f':
+        raise MergeError('--predictor 3 requires floating-point input')
+    if codec in ('lzw', 'deflate', 'zstd'):
+        options.append(f'PREDICTOR={predictor}')
+    return dict(codec=codec, level=level, predictor=predictor, creation_options=options)
+
+
+def codec_memory_bytes(settings):
+    # Conservative planning reserves, not an OS-enforced memory bound. LZMA
+    # dictionary/search buffers and high-effort ZSTD need more than DEFLATE.
+    codec, level = settings['codec'], settings['level']
+    if codec == 'lzma':
+        dictionary_mib = (.25, 1, 2, 4, 4, 8, 8, 16, 32, 64)[level]
+        return int((32 + 12 * dictionary_mib) * 1024**2)
+    if codec == 'zstd':
+        return (32 if level <= 9 else 64 if level <= 15 else 256 if level <= 19 else 1024) * 1024**2
+    return 4 * 1024**2
+
+
+def check_compression(ds, settings):
+    actual = ds.GetMetadataItem('COMPRESSION', 'IMAGE_STRUCTURE') or 'NONE'
+    if actual.upper() != settings['codec'].upper():
+        raise MergeError(f"Requested compression {settings['codec']} but GDAL wrote {actual}")
+    if settings['codec'] in ('deflate', 'lzw', 'zstd'):
+        actual_predictor = int(ds.GetMetadataItem('PREDICTOR', 'IMAGE_STRUCTURE') or 1)
+        if actual_predictor != settings['predictor']:
+            raise MergeError('GDAL did not apply the requested predictor')
+
+
+def probe_compression(settings, template):
+    """Fail before hashing/merging if this GDAL cannot write the requested codec."""
+    import xml.etree.ElementTree as ET
+    driver = gdal.GetDriverByName('GTiff')
+    metadata = ET.fromstring(driver.GetMetadataItem('DMD_CREATIONOPTIONLIST'))
+    available = {v.text.upper() for v in metadata.findall("./Option[@name='COMPRESS']/Value")}
+    if settings['codec'].upper() not in available:
+        raise MergeError(f"This GDAL build does not support {settings['codec']} compression; choose an installed codec")
+    option_names = {o.get('name') for o in metadata.findall('Option')}
+    if any(option.split('=', 1)[0] not in option_names for option in settings['creation_options']):
+        raise MergeError('This GDAL build lacks a requested compression creation option')
+    dtype = np.dtype(template['dtype'])
+    data = np.arange(64, dtype=dtype).reshape(8, 8)
+    if dtype.kind == 'f':
+        data[0, :4] = [-0.0, np.nan, np.inf, -np.inf]
+    path = f'/vsimem/merge-codec-{uuid.uuid4().hex}.tif'
+    try:
+        with gdal.GetDriverByName('GTiff').Create(path, 8, 8, 1,
+                gdal_array.NumericTypeCodeToGDALTypeCode(dtype),
+                ['TILED=YES', 'BLOCKXSIZE=256', 'BLOCKYSIZE=256', 'BIGTIFF=YES',
+                 *settings['creation_options']]) as ds:
+            ds.WriteArray(data)
+        with gdal.Open(path) as ds:
+            check_compression(ds, settings)
+            if not np.all(bit_equal(data, ds.ReadAsArray())):
+                raise MergeError('Compression/predictor failed the exact sample-bit probe')
+    finally:
+        gdal.Unlink(path)
+
+
+def compressed_sample_size(values, settings):
+    """Use the selected GDAL codec/level/predictor, not a DEFLATE approximation."""
+    path = f'/vsimem/merge-sample-{uuid.uuid4().hex}.tif'
+    try:
+        with gdal.GetDriverByName('GTiff').Create(path, values.shape[2], values.shape[1], values.shape[0],
+                gdal_array.NumericTypeCodeToGDALTypeCode(values.dtype),
+                ['TILED=YES', 'BLOCKXSIZE=256', 'BLOCKYSIZE=256', 'BIGTIFF=YES',
+                 'INTERLEAVE=PIXEL', *settings['creation_options']]) as ds:
+            ds.WriteArray(values)
+        return gdal.VSIStatL(path).size
+    finally:
+        gdal.Unlink(path)
+
+
 def create_candidate(path, region, sources, template, readers, edge, policy, compression):
     output = output_signature(template)
     nd = output["nodata"]
     fill = nd if nd is not None else 0
     options = ['TILED=YES', 'BLOCKXSIZE=256', 'BLOCKYSIZE=256', 'BIGTIFF=YES',
-               'INTERLEAVE=PIXEL', f'COMPRESS={compression.upper()}',
+               'INTERLEAVE=PIXEL', *template['compression_settings']['creation_options'],
                f'NUM_THREADS={template.get("codec_threads", 1)}']
     hits = [s for s in sources if s.rect.intersection(region)]
     dst = gdal.GetDriverByName('GTiff').Create(str(path), region.w, region.h, template['count'],
@@ -652,6 +745,8 @@ def verify_output(path, region, sources, template, readers, edge, policy):
     """
     checked = discarded = 0
     with opened(path) as dst:
+        if 'compression_settings' in template:
+            check_compression(dst, template['compression_settings'])
         expected_transform = template["transform"].shifted(region.x, region.y)
         if (dst.RasterXSize != region.w or dst.RasterYSize != region.h or not same_crs(dst.GetProjection(), template['crs']) or
                 Grid(*dst.GetGeoTransform()) != expected_transform or not compatible(signature(dst), {k: output_signature(template)[k] for k in signature(dst)})):
@@ -745,8 +840,9 @@ def resource_plan(args, template, sources, jobs):
     count, itemsize = template['count'], np.dtype(template['dtype']).itemsize
     # Conservative allowance for source/output arrays, masks, byte comparisons,
     # TIFF codecs, Python/native runtime, and allocator overhead.
+    codec_reserve = codec_memory_bytes(compression_settings(args, template['dtype']))
     def worker_bytes(n):
-        return 64 * 1024 ** 2 + decode_reserve + n * n * count * (itemsize * 10 + 24)
+        return 64 * 1024 ** 2 + decode_reserve + codec_reserve + n * n * count * (itemsize * 10 + 24)
     usable = budget - cache - 128 * 1024 ** 2
     while worker_bytes(edge) > usable and edge > 64:
         edge //= 2
@@ -756,12 +852,13 @@ def resource_plan(args, template, sources, jobs):
     # GDAL's GTiff writers use one process-wide codec pool, shared by all
     # output files. Dividing this pool by worker count would leave CPUs unused.
     spare_memory = max(0, usable - workers * worker_bytes(edge))
-    codec_threads = max(1, min(cpus - workers, spare_memory // (4 * 1024**2)))
+    codec_threads = max(1, min(cpus - workers, spare_memory // codec_reserve))
     return dict(detected_cpus=detected_cpus, available_ram_bytes=available,
                 requested_cpus=args.cpus, requested_ram_bytes=args.ram,
                 cpus=cpus, ram_budget_bytes=budget, workers=workers,
                 codec_threads_per_worker=codec_threads, codec_pool_shared=True,
-                estimated_codec_pool_bytes=codec_threads * 4 * 1024**2 if codec_threads > 1 else 0,
+                estimated_codec_pool_bytes=codec_threads * codec_reserve if codec_threads > 1 else 0,
+                estimated_codec_thread_bytes=codec_reserve,
                 block_size=edge,
                 gdal_cache_bytes=cache, estimated_worker_bytes=worker_bytes(edge),
                 ram_limit_kind='working-memory budget, not an OS-enforced process limit')
@@ -782,7 +879,7 @@ def worker_options():
 
 
 def estimate_density(sources, template, compression, workers):
-    """Sample real 256-pixel TIFF-sized blocks with the same lossless codec."""
+    """Sample actual TIFFs using the chosen lossless codec, level and predictor."""
     output = output_signature(template)
     raw = template['count'] * np.dtype(template['dtype']).itemsize
     if compression == 'none':
@@ -801,7 +898,7 @@ def estimate_density(sources, template, compression, workers):
                     if output['nodata_tuple']:
                         for band, value in enumerate(output['nodata_tuple'].split()):
                             values[band][~valid[band]] = float(value)
-                    total += len(zlib.compress(np.moveaxis(values, 0, -1).tobytes(), 6)) + 32
+                    total += compressed_sample_size(values, template['compression_settings'])
                     pixels += rect.area
         finally:
             readers.close()
@@ -888,8 +985,12 @@ def _run(args, progress):
             if args.output_nodata is not None:
                 template['output_nodata'] = parse_output_nodata(args.output_nodata, template['dtype'])
                 report['output_nodata'] = nodata_text(template['output_nodata'])
+            settings = compression_settings(args, template['dtype'])
+            template['compression_settings'] = settings
+            report['compression_settings'] = settings
             resources = resource_plan(args, template, sources, len(sources))
             gdal.SetCacheMax(resources["gdal_cache_bytes"])
+            probe_compression(settings, template)
             report["resources"] = resources
             write_report(output_dir, report)
             report["input_order"] = [s.path.name for s in sources]
@@ -1015,7 +1116,12 @@ def parser():
     result.add_argument('--suggest-nodata', action='store_true',
                         help='Exhaustively find unused scalar NoData values; combine with --dry-run to inspect only')
     result.add_argument('--output-nodata', help='Fill missing pixels with this value, set scalar NoData, omit stored mask; reject collisions')
-    result.add_argument("--compression", choices=("deflate", "none"), default="deflate")
+    result.add_argument("--compression", type=str.lower, choices=LOSSLESS_CODECS, default="deflate",
+                        help="Lossless TIFF codec; default deflate. Availability depends on GDAL build")
+    result.add_argument('--compression-level', type=int,
+                        help='DEFLATE 1..9 (default 6), ZSTD 1..22 (9), LZMA 0..9 (6); other codecs have no level')
+    result.add_argument('--predictor', type=int, choices=(1, 2, 3), default=1,
+                        help='1=none (default), 2=horizontal, 3=float; 2/3 only for LZW/DEFLATE/ZSTD')
     result.add_argument("--block-size", type=int, help="Processing window edge; default auto, up to 2048 pixels")
     result.add_argument("--cache-mib", type=int, help="Optional GDAL cache ceiling in MiB; otherwise derived from RAM budget")
     return result
@@ -1078,7 +1184,8 @@ class Job:
 
 def start(input_dir, output_dir, *, target_size=None, base_name='mosaic', cpus=None, ram=None,
           overlap='error', compression='deflate', analyze_only=False, block_size=None,
-          cache_mib=None, suggest_nodata=False, output_nodata=None, python_executable=None):
+          cache_mib=None, suggest_nodata=False, output_nodata=None, compression_level=None,
+          predictor=1, python_executable=None):
     """Run from QGIS 4.2 console without blocking its Qt event loop.
 
     Uses QGIS's own Python in a separate process, so its GDAL cache and CPU
@@ -1097,7 +1204,10 @@ def start(input_dir, output_dir, *, target_size=None, base_name='mosaic', cpus=N
     cancel_file = output.parent / f'.{output.name}-{token}.cancel'
     command = [str(executable), '-u', str(Path(__file__).resolve()), str(input_dir), str(output),
                '--base-name', base_name, '--overlap', overlap, '--compression', compression,
+               '--predictor', str(predictor),
                '--cancel-file', str(cancel_file)]
+    if compression_level is not None:
+        command += ['--compression-level', str(compression_level)]
     if target_size is not None:
         command += ['--target-size', str(target_size)]
     if block_size is not None:

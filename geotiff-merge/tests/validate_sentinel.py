@@ -152,6 +152,9 @@ def main():
     p.add_argument('--single-file', action='store_true', help='Omit the size target to exercise one-file mode')
     p.add_argument('--base-name', default='mosaic')
     p.add_argument('--output-nodata', help='Exercise explicit scalar NoData instead of a stored mask')
+    p.add_argument('--compression', default='deflate')
+    p.add_argument('--compression-level', type=int)
+    p.add_argument('--predictor', type=int, default=1)
     p.add_argument('--label', help='Fresh result label when retaining evidence from an earlier run')
     args = p.parse_args()
     work = args.work.resolve()
@@ -170,7 +173,8 @@ def main():
     began = time.monotonic()
     job = module['start'](work / 'inputs', output, target_size=None if args.single_file else '1GiB',
                           base_name=args.base_name, cpus=args.cpus, ram=args.ram,
-                          output_nodata=args.output_nodata)
+                          output_nodata=args.output_nodata, compression=args.compression,
+                          compression_level=args.compression_level, predictor=args.predictor)
     result['start_return_seconds'] = time.monotonic() - began
     timer = QTimer(app)
     timer.setInterval(250)
@@ -195,6 +199,8 @@ def main():
     result['qgis_exception_mode_unchanged'] = gdal.GetUseExceptions() == exceptions_before
     try:
         report = job.result()
+        assert report['compression_settings']['codec'] == args.compression.lower()
+        assert report['compression_settings']['predictor'] == args.predictor
         assert not errors, errors
         assert result['qgis_cache_unchanged'] and result['qgis_exception_mode_unchanged']
         assert result['heartbeat'] > 2
