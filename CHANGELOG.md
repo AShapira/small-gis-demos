@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.0 — 2026-10-08
+
+- Add a standalone OSGeo4W/QGIS-shell utility for combining recursive folders
+  of aligned 8-bit RGB or grayscale GeoTIFFs into one VRT with JPEG overviews.
+- Preserve source files and transparency with explicit virtual validity masks
+  and a separate lossless overview mask pyramid. Include bounded GDAL resources,
+  dry runs, source manifests, validation reports, and cooperative cancellation.
+- Validate 20 generated-data tests with Windows QGIS GDAL, including 2,000 tiles,
+  NoData and overlap behavior, native CLI cancellation, and failure cleanup.
+  Add the suite to Linux CI and document GeoServer reader compatibility limits.
+
 ## 0.4.0 — 2026-09-30
 
 - Extend explicit lossless compression selection to DEFLATE, LZW, ZSTD, LZMA,

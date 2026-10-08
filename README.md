@@ -6,6 +6,7 @@ Practical GIS demonstrations with reproducible tests and documented limits.
 | --- | --- | --- |
 | GeoTIFF merge for QGIS 4.2 | Merge aligned rasters into one file or an optional target size (+10% allowance), use available CPU/RAM with optional limits, and exhaustively verify pixels and masks. | [geotiff-merge/](geotiff-merge/README.md) |
 | GeoTIFF overview generator | Rebuild external overviews with GDAL, bounded parallelism, dry runs, logs and cooperative cancellation; CLI and QGIS Python-console entry points. | [overview-generator/](overview-generator/README.md) |
+| VRT with JPEG overviews | Combine folder trees of aligned RGB/grayscale GeoTIFFs into one VRT with JPEG overviews and lossless transparency masks; OSGeo4W/QGIS-shell CLI. | [vrt-overviews/](vrt-overviews/README.md) |
 | GeoServer raster benchmark | Compare raster compression, conversion quality, WMS/WMTS delivery and resource profiles using Windows Podman Desktop. | [Benchmark guide](docs/geoserver-benchmark.md) |
 
 ## Overview generator
@@ -45,11 +46,13 @@ Public validation summaries retain test outcomes with local paths redacted.
 - GeoTIFF merge: use QGIS 4.2 Python (GDAL/NumPy included), then run
   `python -m unittest discover -s geotiff-merge/tests -v` (generated rasters only).
 - [Overview-generator native Windows tests](overview-generator/tests/README.md)
+- VRT/JPEG overview tests: use GDAL 3.8+ Python with NumPy, then run
+  `python -m unittest discover -s vrt-overviews/tests -v` (generated rasters only).
 - Benchmark unit suite: `PYTHONPATH=.:.build/copernicus python -m unittest discover -s tests -v`
   after `python -m pip install -r requirements-test.txt` and fetching the
   checksum-pinned downloader with `python scripts/fetch_test_dependency.py`.
 - Container-backed integration and real benchmark runs are separate, opt-in
   operations; unit tests do not start services or download imagery.
 
-Release: **0.4.0**. See [CHANGELOG.md](CHANGELOG.md) and
+Release: **0.5.0**. See [CHANGELOG.md](CHANGELOG.md) and
 [third-party notices](THIRD_PARTY_NOTICES.md).
