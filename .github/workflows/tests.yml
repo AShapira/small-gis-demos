@@ -3,6 +3,20 @@ on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
 jobs:
+  cesium-adapter:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cesium-wms-gutter-demo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: cesium-wms-gutter-demo/package-lock.json
+      - run: npm ci
+      - run: npm test
   geotiff-merge:
     runs-on: ubuntu-latest
     steps:

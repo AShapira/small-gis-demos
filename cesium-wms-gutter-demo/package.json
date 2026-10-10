@@ -1,0 +1,16 @@
+{
+  "name": "cesium-wms-gutter-demo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test tests/adapter.test.mjs",
+    "test:browser": "node tests/browser.mjs",
+    "test:smoke": "node tests/smoke.mjs",
+    "test:gutters": "node tests/gutters.mjs"
+  },
+  "dependencies": { "cesium": "1.146.0" },
+  "devDependencies": { "playwright": "1.58.2" }
+}

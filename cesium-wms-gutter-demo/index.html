@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rotated pixels · Cesium WMS gutter lab</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/node_modules/cesium/Build/Cesium/Widgets/widgets.css">
+  <link rel="stylesheet" href="/style.css">
+  <script>window.CESIUM_BASE_URL = "/node_modules/cesium/Build/Cesium/";</script>
+  <script src="/node_modules/cesium/Build/Cesium/Cesium.js"></script>
+</head>
+<body>
+  <main>
+    <header><div><p class="eyebrow">RASTER RENDERING LAB / DIRECT WMS</p><h1>Rotated pixels. Same source.</h1>
+      <p class="intro">Compare rendering gutters of 0, 20, 64, 128 and 256 pixels. Every size keeps nearest-neighbour sampling.</p></div>
+      <span class="badge">EPSG:3857 → EPSG:3857</span></header>
+    <section class="toolbar" aria-label="Comparison controls">
+      <label>GeoTIFF<select id="fixture"></select></label>
+      <label>View<select id="preset"><option value="triangle">Interior triangles · z24</option><option value="checker">Sharp checkerboard · z24</option><option value="footprint">Whole footprint · z14</option></select></label>
+      <label>Left gutter<select id="gutter-left" class="gutter-select"></select></label>
+      <label>Right gutter<select id="gutter-right" class="gutter-select"></select></label>
+      <button id="reset">Reset view</button><span id="status" role="status">Loading Cesium…</span>
+    </section>
+    <section class="map-shell" aria-label="Interactive Cesium comparison">
+      <div id="map"></div><div class="map-label left"><strong id="map-left-title">GUTTER 0</strong><span id="map-left-size">256 × 256 request</span></div>
+      <div class="map-label right"><strong id="map-right-title">GUTTER 128</strong><span id="map-right-size">512 × 512 → central 256 × 256</span></div>
+      <div id="divider"></div>
+      <div class="split-control"><label for="split">Drag to compare the same map</label><input id="split" type="range" min="0" max="100" value="50"></div>
+    </section>
+    <section class="inspector">
+      <div class="section-heading"><div><p class="eyebrow">EXACT TILE / NO DISPLAY RESIZING</p><h2>Look at the pixels</h2></div><code id="tile-id"></code></div>
+      <div class="tile-grid"><article><h3 id="tile-left-title">Gutter 0</h3><canvas id="tile-left" width="256" height="256"></canvas><p id="tile-left-caption"></p></article>
+        <article><h3 id="tile-right-title">Gutter 128</h3><canvas id="tile-right" width="256" height="256"></canvas><p id="tile-right-caption"></p></article>
+        <article class="explanation"><h3>Extra area, same resolution</h3><p>The larger request gives GeoServer room to render around the tile. The adapter crops the selected gutter from each side without scaling the image.</p><p>White inside the source footprint is missing imagery. White outside the rotated footprint is expected.</p><p class="caveat">This is a workaround: the wider study still found a few failures near the outer edges.</p></article></div>
+    </section>
+    <section class="benchmark"><div class="section-heading"><div><p class="eyebrow">BROWSER REQUEST PERFORMANCE</p><h2>Measure the tradeoff</h2></div><button id="benchmark">Benchmark all 5 gutters</button></div>
+      <p>Gutters 0, 20, 64, 128 and 256 · 96 fixed tiles per size · 8 warm-ups per block · 3 repetitions · concurrency 1 and 6. Includes WMS transfer, decoding and crop; excludes globe rendering. HTTP caching is disabled.</p>
+      <p id="benchmark-status" role="status">The map pauses while the benchmark runs.</p><div id="results"></div><button id="download" hidden>Download measurements</button>
+    </section>
+    <footer>Local CesiumJS · no Ion token or external basemap · unchanged affine GeoTIFFs</footer>
+  </main><script type="module" src="/app.js"></script>
+</body></html>

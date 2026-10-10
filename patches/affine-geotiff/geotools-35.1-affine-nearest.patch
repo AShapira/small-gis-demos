@@ -1,0 +1,33 @@
+--- a/modules/library/render/src/main/java/org/geotools/renderer/lite/gridcoverage2d/GridCoverageReaderHelper.java
++++ b/modules/library/render/src/main/java/org/geotools/renderer/lite/gridcoverage2d/GridCoverageReaderHelper.java
+@@ -89,6 +89,8 @@
+ 
+     private boolean sameCRS;
+ 
++    private boolean preserveRotatedGridPixels;
++
+     private int padding;
+ 
+     public GridCoverageReaderHelper(
+@@ -119,6 +121,10 @@
+         // we are going to read
+ 
+         sameCRS = CRS.isEquivalent(mapExtent.getCoordinateReferenceSystem(), reader.getCoordinateReferenceSystem());
++        MathTransform sourceGridToCRS = reader.getOriginalGridToWorld(PixelInCell.CELL_CENTER);
++        preserveRotatedGridPixels = sameCRS && interpolation instanceof InterpolationNearest
++                && sourceGridToCRS instanceof java.awt.geom.AffineTransform at
++                && (at.getShearX() != 0 || at.getShearY() != 0);
+         paddingRequired = (!sameCRS || !(interpolation instanceof InterpolationNearest) || isMultiCRSReader(reader))
+                 && !isReprojectingReader(reader);
+         if (paddingRequired) {
+@@ -374,6 +380,10 @@
+     }
+ 
+     private GridCoverage2D cropCoverage(GridCoverage2D coverage, ReferencedEnvelope cropEnvelope) {
++        // The reader already selected the source window. A model-space crop here
++        // quantizes its ROI on rotated source pixels before they are enlarged.
++        // Preserve those pixels for the subsequent rendering steps.
++        if (preserveRotatedGridPixels) return coverage;
+         if (isNotEmpty(cropEnvelope)) {
+             final ParameterValueGroup param =
+                     PROCESSOR.getOperation("CoverageCrop").getParameters();

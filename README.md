@@ -8,6 +8,12 @@ Practical GIS demonstrations with reproducible tests and documented limits.
 | GeoTIFF overview generator | Rebuild external overviews with GDAL, bounded parallelism, dry runs, logs and cooperative cancellation; CLI and QGIS Python-console entry points. | [overview-generator/](overview-generator/README.md) |
 | VRT with JPEG overviews | Combine folder trees of aligned RGB/grayscale GeoTIFFs into one VRT with JPEG overviews and lossless transparency masks; OSGeo4W/QGIS-shell CLI. | [vrt-overviews/](vrt-overviews/README.md) |
 | GeoServer raster benchmark | Compare raster compression, conversion quality, WMS/WMTS delivery and resource profiles using Windows Podman Desktop. | [Benchmark guide](docs/geoserver-benchmark.md) |
+| Cesium WMS gutter comparison | Compare gutters 0, 20, 64, 128 and 256 on rotated GeoTIFFs, with sharp nearest-neighbour rendering and browser performance measurements. | [cesium-wms-gutter-demo/](cesium-wms-gutter-demo/README.md) |
+
+The [rotated-GeoTIFF study](docs/rotated-geotiff-study.md) documents the
+reproduction, tested workarounds, remaining footprint-edge failures and an
+isolated experimental source correction. Gutter 128 removes the tested interior
+triangles; it is a partial workaround, not a universal fix.
 
 ## Overview generator
 
@@ -53,6 +59,8 @@ Public validation summaries retain test outcomes with local paths redacted.
   checksum-pinned downloader with `python scripts/fetch_test_dependency.py`.
 - Container-backed integration and real benchmark runs are separate, opt-in
   operations; unit tests do not start services or download imagery.
+- Cesium adapter unit tests: `cd cesium-wms-gutter-demo && npm ci && npm test`
+  with Node.js 22+. The demo README covers the separate browser/GeoServer checks.
 
-Release: **0.5.0**. See [CHANGELOG.md](CHANGELOG.md) and
+Release: **0.6.0**. See [CHANGELOG.md](CHANGELOG.md) and
 [third-party notices](THIRD_PARTY_NOTICES.md).

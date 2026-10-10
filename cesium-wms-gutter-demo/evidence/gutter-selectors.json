@@ -1,0 +1,71 @@
+{
+  "checkedAt": "2026-10-10T03:52:08.989Z",
+  "previews": [
+    {
+      "side": "left",
+      "gutter": 0,
+      "requestSize": 256,
+      "missingPixels": 29022
+    },
+    {
+      "side": "left",
+      "gutter": 20,
+      "requestSize": 296,
+      "missingPixels": 8416
+    },
+    {
+      "side": "left",
+      "gutter": 64,
+      "requestSize": 384,
+      "missingPixels": 2515
+    },
+    {
+      "side": "left",
+      "gutter": 128,
+      "requestSize": 512,
+      "missingPixels": 0
+    },
+    {
+      "side": "left",
+      "gutter": 256,
+      "requestSize": 768,
+      "missingPixels": 0
+    },
+    {
+      "side": "right",
+      "gutter": 0,
+      "requestSize": 256,
+      "missingPixels": 29022
+    },
+    {
+      "side": "right",
+      "gutter": 20,
+      "requestSize": 296,
+      "missingPixels": 8416
+    },
+    {
+      "side": "right",
+      "gutter": 64,
+      "requestSize": 384,
+      "missingPixels": 2515
+    },
+    {
+      "side": "right",
+      "gutter": 128,
+      "requestSize": 512,
+      "missingPixels": 0
+    },
+    {
+      "side": "right",
+      "gutter": 256,
+      "requestSize": 768,
+      "missingPixels": 0
+    }
+  ],
+  "cameraPreserved": true,
+  "benchmarkControls": true,
+  "exportedAllSizes": true,
+  "narrowLayout": true,
+  "errors": [],
+  "transportFailures": []
+}

@@ -1,0 +1,14 @@
+{
+  "rasterbench-israel-rgb-5gb-gs": {
+    "running": false,
+    "image": "b73982a71d7780c7735d9d9d671f2fadc6ff26943f9f418150c597f27571026b",
+    "memory": 8589934592,
+    "nanoCpus": 4000000000
+  },
+  "rasterbench-israel-rgb-5gb-worker": {
+    "running": false,
+    "image": "4cfb43a4c5d3fbf86fdbcd4a492d3437291df258f693397bd749e52bcfdfbff2",
+    "memory": 8589934592,
+    "nanoCpus": 4000000000
+  }
+}

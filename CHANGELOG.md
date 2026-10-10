@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0 — 2026-10-10
+
+- Add a dedicated Cesium direct-WMS demo with independent gutter selectors
+  for 0, 20, 64, 128 and 256 pixels, a split map, exact tile previews and a
+  repeatable browser benchmark for all five sizes.
+- Preserve nearest-neighbour sampling with expanded WMS requests and a 1:1
+  centre crop. Retain measured performance, visual comparisons and the limits
+  of the gutter-128 workaround, including footprint-edge request failures.
+- Include the deterministic rotated-GeoTIFF study, independent affine oracle,
+  WMS/GWC test runner and isolated experimental GeoTools/ImageN patches.
+  Add affine-oracle and Cesium adapter checks to CI.
+
 ## 0.5.0 — 2026-10-08
 
 - Add a standalone OSGeo4W/QGIS-shell utility for combining recursive folders

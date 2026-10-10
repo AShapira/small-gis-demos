@@ -1,0 +1,11 @@
+{
+  "checkedAt": "2026-10-10T02:45:40.776Z",
+  "slider": true,
+  "selectors": true,
+  "northUpEqual": true,
+  "benchmarkControls": true,
+  "narrowLayout": true,
+  "staticRouteRestrictions": true,
+  "errors": [],
+  "externalRequests": []
+}

@@ -1,0 +1,42 @@
+{
+  "version": {
+    "about": {
+      "resource": [
+        {
+          "@name": "GeoServer",
+          "Build-Timestamp": "14-Aug-2026 16:40",
+          "Version": "3.0.1",
+          "Git-Revision": "3ec7c7009c01dc1d19e8f5332d971f561fbbee36"
+        },
+        {
+          "@name": "GeoTools",
+          "Build-Timestamp": "14-Aug-2026 15:09",
+          "Version": 35.1,
+          "Git-Revision": "820904c219b584f817dbf7341ba2c480fc1a3e06"
+        },
+        {
+          "@name": "GeoWebCache",
+          "Version": "2.0.1",
+          "Git-Revision": "2.0.x/6dc564c84582f47b4d3047cdc2f6aa0ee1c7b676"
+        }
+      ]
+    }
+  },
+  "wms_sha256": "951c1ece4d26ba037fe8f26deefa0763816894dcd2b05ffcefec5b3f2d25e340",
+  "fixture_hashes": {
+    "rotm30_base.tif": "2c058c2c8a013e1941c95191c35d9e3045c8592123d290ffe94bea487451ac37",
+    "rot75_ovr.tif": "fe86617cc673dca2ec3ca2ecd99878ec9ec15e3da1b095cfad101b099eafcbc2",
+    "shear_ovr.tif": "27d3a99ff993d8b1cd0a339a5ef86d0d50f3b50dd2a6f1307c96b5f787c63a34",
+    "rot15_base.tif": "e2e07ea835daf7e3ae727733d7010dcb0f957a868fca0c8845e64b1038e05a83",
+    "rot0_ovr.tif": "7e8bf10a0cb8b4f368f21fc68f39247941e217d35a3b838732996e20ce2e1f5c",
+    "rot75_base.tif": "bdf27c39168d37a7ba2128a1469801e3ddbab0bb6d4e8a5f10877aa47433a3bb",
+    "rot15_ovr.tif": "77bc7e934d13a0e4494f97b13c5ce634bfdee97fe6fe94df996f737c52b92b6c",
+    "rot0_base.tif": "18f749604dc2e3dedeaa48e69fafdc65b118e6f1ed625a959a8fb8b9dc8b1441",
+    "rot45_base.tif": "a2ba3126f3e71a035f5f9876343f3997739b981af6894297c99ee949a2b4123a",
+    "shear_base.tif": "aee0633f6c37d88e5a2624e65f2f989848f164a9965a001fe72613c4fae0659f",
+    "rot30_base.tif": "8ef770c3cfe9aa115705f23cb033881f3471057ad9d633b00edf5a9352811c9f",
+    "rot30_ovr.tif": "1d1460b34c82836a083ef9790ab41c8c07e019b25d172491ac88cde3512da384",
+    "rot45_ovr.tif": "b0aa82e8ccf9ddef6a178542c989d041697746f78d852f509f9f47d055b44d29",
+    "rotm30_ovr.tif": "b19ba7b3703b3b4aa8845c4b480a1a87484756be1f3f01416c2f70fdaeab26bb"
+  }
+}

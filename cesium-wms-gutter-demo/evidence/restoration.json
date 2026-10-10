@@ -1,0 +1,14 @@
+{
+  "checkedAt": "2026-10-10T02:50:09.924914+00:00",
+  "wmsSettingsUnchanged": true,
+  "serverVersionUnchanged": true,
+  "fixtureHashesUnchanged": true,
+  "fixturesVerified": 14,
+  "originalImagesUnchanged": true,
+  "containerRunningStateRestored": true,
+  "finalRunningState": {
+    "rasterbench-israel-rgb-5gb-gs": false,
+    "rasterbench-israel-rgb-5gb-worker": false
+  },
+  "demoServerStopped": true
+}
