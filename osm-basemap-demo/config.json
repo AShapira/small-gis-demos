@@ -1,0 +1,21 @@
+{
+  "countries": ["europe/czech-republic", "europe/slovakia"],
+  "snapshot": "latest-common",
+  "source_maxzoom": 14,
+  "display_maxzoom": 18,
+  "default_style": "osm-bright",
+  "threads": 8,
+  "java_heap": "16g",
+  "build_memory": "24g",
+  "geoserver_heap": "4G",
+  "port": 8600,
+  "engine": "auto",
+  "images": {
+    "geoserver": "docker.io/kartoza/geoserver:3.0.1",
+    "gdal": "ghcr.io/osgeo/gdal:ubuntu-small-3.11.4",
+    "java": "docker.io/library/eclipse-temurin:21-jre"
+  },
+  "planetiler_version": "0.10.2",
+  "styles_commit": "f98a24dad4f14fe66397c5221e0f282e8681cfb6",
+  "smoke_bbox": [14.32, 50.01, 14.55, 50.15]
+}

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "small-gis-demos"
-version = "0.6.0"
-description = "Small GIS demonstrations: GeoServer raster benchmarks and GeoTIFF merging and overviews"
+version = "0.7.0"
+description = "Small GIS demonstrations: offline OSM basemaps, GeoServer raster benchmarks and GeoTIFF utilities"
 requires-python = ">=3.11"
 dependencies = ["PyYAML==6.0.2"]
 

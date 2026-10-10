@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.0 — 2026-10-10
+
+- Add a standalone offline OSM basemap pipeline with configurable country
+  extracts, regional vector MBTiles, a worldwide Natural Earth GeoPackage,
+  and stock Kartoza GeoServer 3.0.1 WMS/WMTS serving.
+- Provide five recognizable styles in local and English variants, an offline
+  viewer, and style refresh without regenerating data. English labels use
+  explicit translations; untranslated POI icons use collision handling,
+  wider spacing and lower priority to limit clutter.
+- Include image/data export, Docker/Podman Compose and private GCP deployment
+  guidance, eight regression tests, browser and collision acceptance checks,
+  and measured Czechia/Slovakia validation including isolated offline startup.
+
 ## 0.6.0 — 2026-10-10
 
 - Add a dedicated Cesium direct-WMS demo with independent gutter selectors

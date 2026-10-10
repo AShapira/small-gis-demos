@@ -4,6 +4,7 @@ Practical GIS demonstrations with reproducible tests and documented limits.
 
 | Demo | Purpose | Start here |
 | --- | --- | --- |
+| Offline OSM basemaps | Build configurable country MBTiles and a global overview, then serve five recognizable styles through stock Kartoza GeoServer WMS/WMTS. | [osm-basemap-demo/](osm-basemap-demo/README.md) |
 | GeoTIFF merge for QGIS 4.2 | Merge aligned rasters into one file or an optional target size (+10% allowance), use available CPU/RAM with optional limits, and exhaustively verify pixels and masks. | [geotiff-merge/](geotiff-merge/README.md) |
 | GeoTIFF overview generator | Rebuild external overviews with GDAL, bounded parallelism, dry runs, logs and cooperative cancellation; CLI and QGIS Python-console entry points. | [overview-generator/](overview-generator/README.md) |
 | VRT with JPEG overviews | Combine folder trees of aligned RGB/grayscale GeoTIFFs into one VRT with JPEG overviews and lossless transparency masks; OSGeo4W/QGIS-shell CLI. | [vrt-overviews/](vrt-overviews/README.md) |
@@ -62,5 +63,5 @@ Public validation summaries retain test outcomes with local paths redacted.
 - Cesium adapter unit tests: `cd cesium-wms-gutter-demo && npm ci && npm test`
   with Node.js 22+. The demo README covers the separate browser/GeoServer checks.
 
-Release: **0.6.0**. See [CHANGELOG.md](CHANGELOG.md) and
+Release: **0.7.0**. See [CHANGELOG.md](CHANGELOG.md) and
 [third-party notices](THIRD_PARTY_NOTICES.md).

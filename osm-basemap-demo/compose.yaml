@@ -1,0 +1,42 @@
+name: osm-basemap-demo
+services:
+  geoserver:
+    image: ${GEOSERVER_IMAGE:-docker.io/kartoza/geoserver:3.0.1}
+    platform: linux/amd64
+    pull_policy: never
+    restart: unless-stopped
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${GEOSERVER_PORT:-8600}:8080"
+    environment:
+      STABLE_EXTENSIONS: mbstyle-plugin
+      ACTIVE_EXTENSIONS: mbstyle-plugin
+      COMMUNITY_EXTENSIONS: mbtiles-store-plugin
+      FORCE_DOWNLOAD_STABLE_EXTENSIONS: "false"
+      FORCE_DOWNLOAD_COMMUNITY_EXTENSIONS: "false"
+      SAMPLE_DATA: "false"
+      RECREATE_DATADIR: "false"
+      GEOSERVER_DATA_DIR: /opt/geoserver/data_dir
+      GEOWEBCACHE_CACHE_DIR: /opt/geoserver/gwc
+      GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
+      GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:?Set GEOSERVER_ADMIN_PASSWORD in .env}
+      INITIAL_MEMORY: 1G
+      MAXIMUM_MEMORY: ${GEOSERVER_HEAP:-4G}
+      JAVA_TOOL_OPTIONS: -DMBSTYLE_ROOT_TILE_PIXELS=256
+      GOOGLE_FONTS_NAMES: ""
+      GEOSERVER_DISABLE_STATIC_WEB_FILES: "false"
+      GEOSERVER_STATIC_WEB_FILES_SCRIPT: SELF
+    volumes:
+      - ./data_dir:/opt/geoserver/data_dir
+      - ./fonts:/opt/fonts:ro
+      - ./cache:/opt/geoserver/gwc
+      - ./init-permissions.sh:/docker-entrypoint-geoserver.d/99-demo-permissions.sh:ro
+    networks: [isolated]
+    healthcheck:
+      test: [CMD-SHELL, "curl -fsS 'http://127.0.0.1:8080/geoserver/ows?service=WMS&request=GetCapabilities' >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+networks:
+  isolated:
+    internal: true

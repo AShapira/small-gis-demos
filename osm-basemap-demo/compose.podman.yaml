@@ -1,0 +1,5 @@
+# Local rootless Podman only. Omit this override for Docker on GCP.
+services:
+  geoserver:
+    user: "0:0"
+    userns_mode: "keep-id:uid=2000,gid=2000"
