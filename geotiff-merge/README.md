@@ -3,7 +3,7 @@
 Merge a flat directory of `.tif` / `.tiff` files into larger, spatially disjoint
 GeoTIFFs. With no size target, all inputs merge into **one BigTIFF**. An optional
 size is a **target with a 10% allowance**: a 25 GB target accepts a
-finished TIFF up to 27.5 GB, including metadata and its internal mask. Inputs
+finished TIFF up to 27.5 GB, including metadata, its internal mask and any COG overviews. Inputs
 are read-only. Every output is exhaustively verified before completion.
 
 ## QGIS Python console
@@ -75,6 +75,74 @@ The numeric suffix is retained even when there is only one file.
 Treat a run as successful only when the process exits zero and the report says
 `"status": "complete"`. An analysis run has status `analyzed` and no TIFFs.
 
+## Optional Cloud Optimized GeoTIFF (COG)
+
+COG output is **off by default** (`cog=False`). Enable it to create tiled
+BigTIFFs with a layout suitable for HTTP range reads, internal overviews, and
+full GDAL COG structural validation:
+
+```python
+job = merger["start"](r"D:\rasters", r"D:\merged-cog",
+                      cog=True, base_name="sentinel", compression="zstd",
+                      compression_level=3, predictor=2,
+                      target_size="25GB", cpus=8, ram="8GiB")
+```
+
+```bash
+python geotiff-merge/merge_geotiffs.py /data/input /data/merged-cog \
+  --cog --compression zstd --compression-level 3 --predictor 2
+```
+
+Omitting the target still produces one file. All ordinary overlap, compression,
+NoData and naming options apply. COG supports the exposed DEFLATE, LZW, ZSTD,
+LZMA and NONE codecs when available in the installed GDAL. **PackBits is not
+supported by the COG driver**; that combination fails before merging, including
+in a dry run. The default remains DEFLATE level 6 with predictor 1.
+
+`--cog-overviews` / `cog_overviews` selects lower-resolution display levels:
+
+| Value | Purpose |
+| --- | --- |
+| `nearest` (default) | Select existing samples; useful for classes or when averaged display values are unwanted. |
+| `average` | Average valid samples for smoother continuous imagery. These derived display levels contain new values. |
+| `mode` | Use the most frequent valid class for categorical data. |
+| `none` | Omit overviews. The file retains COG tile ordering but large files get a validator warning and lose efficient zoomed-out reads. |
+
+Overviews are generated at powers of two until the largest dimension fits a
+256-pixel tile. Small outputs may need none. They use the same lossless codec
+and predictor as the full-resolution image. Existing source overviews are not
+copied. Overview resampling **never resamples the full-resolution mosaic**:
+all required valid base samples remain bit-identical to the sources, with the
+same grid, band count and validity. Generated overview values are derived
+products, outside the source-sample equality guarantee. No physical alpha band
+is added; missing data keeps its existing scalar NoData/internal mask behavior,
+including the `--output-nodata` option.
+
+Each candidate is written as a staging TIFF, converted with GDAL's COG driver,
+then reopened read-only. The finished COG is checked against the original inputs
+and with `osgeo_utils.samples.validate_cloud_optimized_geotiff` using
+`full_check=True`, including tile ordering and block structure. A layout marker
+alone is insufficient. Failures prevent publication; per-file validation results,
+overview counts and warnings are recorded in `report.json`. The COG validator is
+included in the tested QGIS 4.2 environment; a standalone GDAL installation must
+also supply `osgeo_utils`. Ordinary TIFF output does not require that module.
+
+The size target applies **after conversion**, including all overview and mask
+bytes. An oversized COG is split and rebuilt. Planning allows roughly one third
+extra for overviews, but compression and padding make the actual overhead vary.
+Allow additional temporary disk space: the staging TIFF, final COG and GDAL's
+overview temporary data can coexist for each active file worker. Conversion,
+overview generation and full layout checking also add time. CPU/cache limits
+carry through conversion, and memory planning includes an extra per-worker
+reserve; RAM remains a planning budget rather than an OS-enforced ceiling.
+Cancellation is cooperative during conversion; full layout checking finishes
+its current file before observing cancellation. Failed runs retain unpublished
+files under `.incomplete` for inspection.
+
+Serving a COG remotely also requires a server that supports HTTP range requests.
+Avoid editing a finished COG in place because updates can break its ordering;
+regenerate it instead. See the [GDAL COG driver documentation](https://gdal.org/en/stable/drivers/raster/cog.html).
+
 ## All input parameters
 
 Both positional paths are required. All other user parameters are optional.
@@ -95,6 +163,8 @@ The API column refers to keyword arguments of `merger["start"](...)`.
 | `--compression CODEC` | `compression` | `"deflate"` | `deflate`, `lzw`, `zstd`, `lzma`, `packbits`, or `none` (case-insensitive). Only lossless data encoding; installed GDAL support is checked. See the codec comparison below. |
 | `--compression-level N` | `compression_level` | Codec default | DEFLATE: 1–9, default 6; ZSTD: 1–22, default 9; LZMA: 0–9, default 6. Rejected for codecs without a level. |
 | `--predictor 1\|2\|3` | `predictor` | `1` | Reversible prediction: 1 none, 2 horizontal, 3 floating-point only. Values 2/3 require LZW, DEFLATE or ZSTD. |
+| `--cog` | `cog` | `False` | Create and structurally validate COG output. Default output remains ordinary tiled BigTIFF. PackBits is incompatible. |
+| `--cog-overviews nearest\|average\|mode\|none` | `cog_overviews` | `"nearest"` | Resampling for new internal COG overviews, or no overviews. Ignored when COG is false; never affects full-resolution samples. |
 | `--block-size N` | `block_size` | Automatic, starts at 2048 | Positive processing-window edge in pixels, reduced if needed for RAM. Independent of the fixed 256-pixel TIFF storage tiles. |
 | `--cache-mib N` | `cache_mib` | Derived from RAM | Positive integer GDAL cache ceiling in MiB. Cache is also limited to one quarter of the RAM budget and 4 GiB. |
 | `-h`, `--help` | — | — | Print shell usage and exit without processing. |
@@ -103,7 +173,7 @@ The API column refers to keyword arguments of `merger["start"](...)`.
 Size values accept bytes without a suffix, or `B`, `KB`, `MB`, `GB`, `TB`,
 `KiB`, `MiB`, `GiB`, `TiB` (case-insensitive; decimal quantities accepted).
 Use strings for sizes in `start()`, for example `ram="2GiB"`. CPU, cache and
-window limits are integers; `analyze_only` and `suggest_nodata` are Booleans.
+window limits are integers; `analyze_only`, `suggest_nodata`, and `cog` are Booleans.
 
 The hidden shell parameter `--cancel-file PATH` is an internal child-process
 control: the worker cancels cooperatively if that file exists. `start()` allocates
@@ -209,7 +279,7 @@ times, creation options and source-manifest hashes. GB here means decimal GB.
 
 All measured lossless variants matched the reference's decoded base and overview
 pixels. This was a four-thread conversion with 512-pixel tiles and overviews.
-The merger uses 256-pixel tiles, does not create overviews, and performs additional
+The merger uses 256-pixel tiles, creates overviews only with opt-in COG output, and performs additional
 verification and input hashing. **These sizes and times are not predictions for
 a merge, and they do not establish a winner for single-band elevation, reflectance,
 categorical or floating-point rasters.** In particular, the default merger's
@@ -350,7 +420,7 @@ there is no nodata value. A valid observation in another source may fill a nodat
 hole. This is a mosaic, not a byte-identical archive of the input TIFF containers.
 
 Arbitrary application tags, statistics, overviews, original compression/layout,
-and other ancillary metadata are not copied. The source files retain them.
+and other ancillary metadata are not copied. COG output can generate new overviews. The source files retain their originals.
 Do not modify inputs or their sidecars during a run. Hashing detects persistent
 changes; this is not an atomic snapshot of a directory being actively written.
 
@@ -413,7 +483,7 @@ rectangles on pixel boundaries,
 and trims footprint-free outer space. Sampling is for size estimation only;
 verification always checks every required sample.
 It can split a single input that is larger than the limit. After writing a
-candidate, it measures its closed file size. Candidates up to target +10% are
+candidate (and converting it when COG is enabled), it measures its closed file size. Candidates up to target +10% are
 accepted. Larger candidates are discarded and split until every accepted file fits. If even one tiled pixel cannot
 fit with its TIFF overhead, the run fails explicitly. Empty areas within output
 rectangles are invalid; the planner skips completely uncovered rectangles.

@@ -85,6 +85,167 @@ class MergeTests(unittest.TestCase):
         # Byte comparison also catches float signed-zero / NaN payload changes.
         self.assertEqual(actual[valid].tobytes(), expected[valid].tobytes())
 
+    def test_cog_is_opt_in(self):
+        self.assertFalse(self.args().cog)
+        self.make('a.tif', np.ones((600, 600), dtype='uint8'))
+        with patch.object(merge, 'cog_validator', side_effect=AssertionError('COG dependency used')):
+            report = self.run_merge('--cpus', '1')
+        self.assertFalse(report['cog'])
+        self.assertNotIn('cog_validation', report['outputs'][0])
+        with gdal.Open(str(self.output / report['outputs'][0]['name'])) as ds:
+            self.assertEqual(ds.GetRasterBand(1).GetOverviewCount(), 0)
+
+    def test_cog_codecs_preserve_samples_masks_and_metadata(self):
+        values = np.random.default_rng(42).integers(0, 65535, (600, 600), dtype='uint16')
+        valid = np.ones(values.shape, dtype=bool)
+        valid[20:50, 20:50] = False
+        path = self.make('a.tif', values, mask=valid)
+        with gdal.Open(str(path), gdal.GA_Update) as ds:
+            band = ds.GetRasterBand(1)
+            band.SetScale(.25)
+            band.SetOffset(10)
+            band.SetUnitType('m')
+            band.SetDescription('height')
+        for codec in ('none', 'lzw', 'deflate', 'zstd', 'lzma'):
+            with self.subTest(codec=codec):
+                self.output = self.root / codec
+                options = ['--cog', '--compression', codec, '--cpus', '2', '--ram', '1GiB']
+                if codec == 'lzma':
+                    options += ['--compression-level', '0']
+                report = self.run_merge(*options)
+                self.assertTrue(report['cog'])
+                self.assert_mosaic(values, valid)
+                for item in report['outputs']:
+                    check = item['cog_validation']
+                    self.assertEqual(check['layout'], 'COG')
+                    self.assertTrue(check['full_check'])
+                    self.assertGreater(check['overview_count'], 0)
+                    self.assertFalse(check['warnings'])
+                    with gdal.Open(str(self.output / item['name'])) as ds:
+                        self.assertEqual(ds.RasterCount, 1)  # No physical alpha band.
+                        band = ds.GetRasterBand(1)
+                        self.assertEqual(band.GetMaskFlags(), gdal.GMF_PER_DATASET)
+                        self.assertEqual((band.GetScale(), band.GetOffset(), band.GetUnitType(), band.GetDescription()),
+                                         (.25, 10, 'm', 'height'))
+
+    def test_cog_overview_resampling_and_none(self):
+        values = np.tile(np.array([[1, 1], [1, 9]], dtype='uint8'), (256, 256))
+        self.make('a.tif', values, nodata=0)
+        for method, expected in [('nearest', 1), ('average', 3), ('mode', 1), ('none', None)]:
+            with self.subTest(method=method):
+                self.output = self.root / method
+                report = self.run_merge('--cog', '--cog-overviews', method, '--cpus', '1')
+                self.assert_mosaic(values, np.ones(values.shape, dtype=bool))
+                with gdal.Open(str(self.output / report['outputs'][0]['name'])) as ds:
+                    band = ds.GetRasterBand(1)
+                    self.assertEqual(band.GetMaskFlags(), gdal.GMF_NODATA)
+                    if expected is None:
+                        self.assertEqual(band.GetOverviewCount(), 0)
+                    else:
+                        np.testing.assert_array_equal(band.GetOverview(0).ReadAsArray(),
+                                                      np.full((256, 256), expected, dtype='uint8'))
+
+    def test_cog_float_payload_bits_and_predictors(self):
+        values = np.array([[0x80000000, 0, 0x7FC01234, 0x7F800000, 0xFF800000, 1]], dtype='uint32').view('float32')
+        self.make('a.tif', values)
+        for predictor in (1, 2, 3):
+            self.output = self.root / f'float-{predictor}'
+            self.run_merge('--cog', '--predictor', str(predictor), '--cpus', '1')
+            self.assert_mosaic(values, np.ones(values.shape, dtype=bool))
+
+    def test_cog_rgb_tuple_nodata(self):
+        values = np.array([[[0, 0, 8]], [[0, 2, 9]], [[0, 3, 7]]], dtype='uint8')
+        path = self.make('a.tif', values)
+        with gdal.Open(str(path), gdal.GA_Update) as ds:
+            ds.SetMetadataItem('NODATA_VALUES', '0 0 0')
+        report = self.run_merge('--cog', '--cpus', '1')
+        valid = np.broadcast_to(np.array([[False, True, True]]), values.shape)
+        self.assert_mosaic(values, valid)
+        with gdal.Open(str(self.output / report['outputs'][0]['name'])) as ds:
+            self.assertEqual(ds.RasterCount, 3)
+            self.assertEqual(ds.GetMetadataItem('NODATA_VALUES'), '0 0 0')
+
+    def test_cog_async_api_nodata_and_single_file(self):
+        values = np.ones((600, 600), dtype='uint16')
+        valid = np.ones(values.shape, dtype=bool)
+        valid[10:20, 10:20] = False
+        self.make('a.tif', values, mask=valid)
+        job = merge.start(self.source, self.output, cog=True, cog_overviews='none',
+                          output_nodata='65535', compression='zstd', compression_level=3,
+                          predictor=2, cpus=2, ram='1GiB')
+        job.process.wait(timeout=30)
+        report = job.result()
+        self.assertTrue(report['cog'])
+        self.assertEqual(report['cog_settings']['overviews'], 'none')
+        self.assertEqual(len(report['outputs']), 1)
+        self.assertIsNone(report['target_file_bytes'])
+        self.assertEqual(report['outputs'][0]['cog_validation']['overview_count'], 0)
+        self.assertTrue(report['outputs'][0]['cog_validation']['warnings'])
+        self.assert_mosaic(values, valid)
+        with gdal.Open(str(self.output / report['outputs'][0]['name'])) as ds:
+            self.assertEqual(ds.GetRasterBand(1).GetMaskFlags(), gdal.GMF_NODATA)
+
+    def test_cog_cap_includes_overviews_and_retries(self):
+        values = np.random.default_rng(1).integers(1, 255, (512, 512), dtype='uint8')
+        self.make('a.tif', values, nodata=0)
+        converted_sizes = []
+        original = merge.convert_cog
+        def record(source, destination, *args):
+            original(source, destination, *args)
+            converted_sizes.append(destination.stat().st_size)
+        with patch.object(merge, 'plan', return_value=iter([merge.Rect(0, 0, 512, 512)])), \
+                patch.object(merge, 'convert_cog', side_effect=record):
+            report = self.run_merge('--cog', '--compression', 'none', '--target-size', '260KiB', '--cpus', '1')
+        self.assertGreater(converted_sizes[0], report['max_file_bytes'])
+        self.assertGreater(len(report['outputs']), 1)
+        self.assertTrue(all(o['bytes'] <= report['max_file_bytes'] for o in report['outputs']))
+        self.assert_mosaic(values, np.ones(values.shape, dtype=bool))
+        self.assertFalse((self.output / '.incomplete').exists())
+
+    def test_cog_dry_run_and_unsupported_packbits(self):
+        self.make('a.tif', np.ones((2, 2), dtype='uint8'))
+        report = self.run_merge('--cog', '--dry-run')
+        self.assertEqual(report['status'], 'analyzed')
+        self.assertEqual(report['cog_settings']['overviews'], 'nearest')
+        self.assertFalse(list(self.output.rglob('*.tif')))
+        self.output = self.root / 'unsupported'
+        with self.assertRaisesRegex(merge.MergeError, 'COG driver does not support packbits'):
+            self.run_merge('--cog', '--compression', 'packbits')
+        self.assertFalse(list(self.output.rglob('*.tif')))
+
+    def test_cog_validation_errors_prevent_publication(self):
+        self.make('a.tif', np.ones((2, 2), dtype='uint8'))
+        with patch.object(merge, 'cog_validator') as factory:
+            factory.return_value.return_value = ([], ['invalid tile ordering'], {})
+            with self.assertRaisesRegex(merge.MergeError, 'COG layout validation failed'):
+                self.run_merge('--cog', '--cpus', '1')
+            self.assertTrue(factory.return_value.call_args.kwargs['full_check'])
+        self.assertFalse(list(self.output.glob('*.tif')))
+
+    def test_cog_final_samples_checked_against_originals(self):
+        self.make('a.tif', np.ones((2, 2), dtype='uint8'))
+        original = merge.convert_cog
+        def corrupt(source, *args):
+            with gdal.Open(str(source), gdal.GA_Update) as ds:
+                ds.GetRasterBand(1).WriteArray(np.array([[2]], dtype='uint8'))
+            return original(source, *args)
+        with patch.object(merge, 'convert_cog', side_effect=corrupt):
+            with self.assertRaises(merge.MergeError):
+                self.run_merge('--cog', '--cpus', '1')
+        self.assertFalse(list(self.output.glob('*.tif')))
+
+    def test_cog_cancellation_callback(self):
+        path = self.make('a.tif', np.ones((2, 2), dtype='uint8'))
+        cancel_file = self.root / 'cancel'
+        def cancelled_copy(destination, src, **kwargs):
+            cancel_file.write_text('cancel')
+            self.assertEqual(kwargs['callback'](.5, '', None), 0)
+            raise RuntimeError('User terminated')
+        with patch.object(merge, '_cancel_file', cancel_file), patch.object(merge.gdal, 'GetDriverByName') as driver:
+            driver.return_value.CreateCopy.side_effect = cancelled_copy
+            with self.assertRaises(merge.Cancelled):
+                merge.convert_cog(path, self.root / 'cancelled.tif', {'creation_options': []}, 1, 4)
+
     def test_all_lossless_codecs_preserve_integer_samples_masks_and_limits(self):
         values = np.random.default_rng(3).integers(0, 65535, (512, 512), dtype='uint16')
         valid = np.ones(values.shape, dtype=bool)

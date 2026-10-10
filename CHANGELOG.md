@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Add opt-in COG merge output (`--cog` / `cog=True`, default false), with
+  nearest, average, mode or no overviews. Preserve and exhaustively verify
+  full-resolution sample bits, masks and core metadata against the original inputs.
+- Validate finished COG tile structure, enforce size targets after conversion
+  including overviews, and retain CPU/RAM controls and cooperative cancellation.
+  Document options, temporary storage costs and COG codec compatibility.
+
 ## 0.7.0 — 2026-10-10
 
 - Add a standalone offline OSM basemap pipeline with configurable country

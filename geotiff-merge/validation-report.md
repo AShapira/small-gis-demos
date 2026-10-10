@@ -1,5 +1,54 @@
 # GeoTIFF merge validation — 2026-09-30
 
+## Opt-in COG update
+
+COG output defaults to false. The updated script passed **75 generated-data
+tests** in QGIS 4.2's Windows Python 3.12.13 / GDAL 3.13.1. Tests exercise
+ordinary TIFF output without the optional validator, all five offered COG codecs,
+nearest/average/mode/no overviews, full-resolution integer and floating-point
+sample bits, masks, scalar and RGB tuple NoData, band metadata, asynchronous
+API forwarding, final-size splitting after conversion, callback cancellation,
+unsupported PackBits, layout-validation failure and deliberate data corruption.
+
+Tested script SHA-256: `40be3f885cbcd9f336fb4019cd77c076116430697143b33d2a3e1cc5d6c07259`.
+
+A medium run reused **17 Sentinel-derived rasters totaling 5,134,938,324
+bytes**. It used COG output with nearest-neighbour overviews, ZSTD level 3,
+predictor 2, scalar NoData 0, a 1 GiB target, 8 CPUs and a 2 GiB RAM budget.
+The four resulting COGs were:
+
+| File | Bytes including overviews | Internal overview levels |
+| --- | ---: | ---: |
+| `mosaic-00001.tif` | 1,099,731,663 | 7 |
+| `mosaic-00002.tif` | 1,022,979,001 | 7 |
+| `mosaic-00003.tif` | 870,549,166 | 7 |
+| `mosaic-00004.tif` | 928,431,042 | 7 |
+
+Total: **3,921,690,872 bytes**. All outputs passed GDAL's
+COG validator with `full_check=True` and no warnings. Each was below the
+110% cap of 1,181,116,006 bytes. Each retained three data bands and
+scalar NoData without an added alpha band or stored mask.
+
+The merge and its internal verification took **92.329 seconds**.
+All 5,134,614,378 required valid source band samples passed;
+source hashes were unchanged. Independent verification against the unsplit
+reference then passed for **1,711,276,032 pixels**,
+**5,133,827,946 valid band samples**, and **150 invalid band samples**.
+The independent check also reran full COG layout validation, and the reference
+hash remained unchanged. These timings exclude the independent checks and are
+validation observations, not a controlled performance comparison.
+
+The Qt event loop recorded 371 heartbeat ticks and 25 timing updates;
+parent GDAL settings were unchanged. `qgis.core` imported successfully in this
+run. This validates bundled Python, the asynchronous API and a real Qt event
+loop; the full QGIS desktop console window was not exercised. Earlier import
+restrictions below describe the earlier runs, not this run.
+
+Raw evidence is retained locally as `validation-cog-zstd3.json`, the output
+`report.json`, and `qgis42-cog-tests.log`, outside Git. The retained harness now
+accepts `--cog` and `--cog-overviews`. Python 3.8 syntax, parameter documentation
+coverage, and `git diff --check` also passed.
+
 ## Explicit lossless compression update
 
 The script passed **64 generated-data tests** in QGIS 4.2's Windows Python

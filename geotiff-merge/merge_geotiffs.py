@@ -668,6 +668,83 @@ def probe_compression(settings, template):
         gdal.Unlink(path)
 
 
+def cog_validator():
+    # Optional dependency: the ordinary GeoTIFF path must not require utilities.
+    try:
+        from osgeo_utils.samples.validate_cloud_optimized_geotiff import validate
+    except ImportError as exc:
+        raise MergeError('COG output requires GDAL osgeo_utils with the COG validator; '
+                         'use the complete QGIS Python environment') from exc
+    return validate
+
+
+def cog_settings(settings, overviews):
+    """Use COG option names, which differ from the GTiff compression options."""
+    import xml.etree.ElementTree as ET
+    driver = gdal.GetDriverByName('COG')
+    if driver is None:
+        raise MergeError('This GDAL build has no COG driver')
+    metadata = ET.fromstring(driver.GetMetadataItem('DMD_CREATIONOPTIONLIST'))
+    available = {v.text.upper() for v in metadata.findall("./Option[@name='COMPRESS']/Value")}
+    if settings['codec'].upper() not in available:
+        raise MergeError(f"COG driver does not support {settings['codec']} compression; "
+                         'choose another lossless codec or omit --cog')
+    cog_validator()
+    options = ['BIGTIFF=YES', 'BLOCKSIZE=256', f"COMPRESS={settings['codec'].upper()}",
+               'OVERVIEWS=NONE' if overviews == 'none' else 'OVERVIEWS=IGNORE_EXISTING',
+               'STATISTICS=NO']
+    if overviews != 'none':
+        options.append(f'OVERVIEW_RESAMPLING={overviews.upper()}')
+    if settings['level'] is not None:
+        options.append(f"LEVEL={settings['level']}")
+    if settings['codec'] in ('lzw', 'deflate', 'zstd'):
+        options.append('PREDICTOR=' + {1: 'NO', 2: 'STANDARD', 3: 'FLOATING_POINT'}[settings['predictor']])
+    return dict(overviews=overviews, creation_options=options,
+                validation='GDAL COG validator with full_check=True')
+
+
+def convert_cog(source, destination, settings, threads, pixels):
+    """Close before verification; never update a COG after creating its layout."""
+    check_cancel()
+    completed = 0
+    def callback(fraction, message, data):
+        nonlocal completed
+        if _cancel_file is not None and _cancel_file.exists():
+            return 0
+        current = max(completed, min(pixels, int(fraction * pixels)))
+        advance_work('Merging and verifying', current - completed)
+        completed = current
+        return 1
+    try:
+        with opened(source) as src:
+            dst = gdal.GetDriverByName('COG').CreateCopy(str(destination), src, strict=1,
+                options=[*settings['creation_options'], f'NUM_THREADS={threads}'], callback=callback)
+            if dst is None:
+                raise MergeError('GDAL failed to create the COG')
+            dst.Close()
+    except Exception:
+        check_cancel()  # GDAL reports callback cancellation as a RuntimeError.
+        raise
+    check_cancel()
+    advance_work('Merging and verifying', pixels - completed)
+
+
+def verify_cog(path):
+    check_cancel()
+    with opened(path) as ds:
+        if ds.GetMetadataItem('LAYOUT', 'IMAGE_STRUCTURE') != 'COG':
+            raise MergeError('Output is missing the COG layout marker')
+        warnings, errors, _ = cog_validator()(ds, full_check=True)
+        if errors:
+            raise MergeError('COG layout validation failed: ' + '; '.join(errors))
+        result = dict(layout='COG', full_check=True, warnings=warnings,
+                      overview_count=ds.GetRasterBand(1).GetOverviewCount())
+    check_cancel()
+    for warning in warnings:
+        log('COG validation warning: ' + warning)
+    return result
+
+
 def compressed_sample_size(values, settings):
     """Use the selected GDAL codec/level/predictor, not a DEFLATE approximation."""
     path = f'/vsimem/merge-sample-{uuid.uuid4().hex}.tif'
@@ -842,7 +919,7 @@ def resource_plan(args, template, sources, jobs):
     # TIFF codecs, Python/native runtime, and allocator overhead.
     codec_reserve = codec_memory_bytes(compression_settings(args, template['dtype']))
     def worker_bytes(n):
-        return 64 * 1024 ** 2 + decode_reserve + codec_reserve + n * n * count * (itemsize * 10 + 24)
+        return 64 * 1024 ** 2 + decode_reserve + codec_reserve + (64 * 1024**2 if args.cog else 0) + n * n * count * (itemsize * 10 + 24)
     usable = budget - cache - 128 * 1024 ** 2
     while worker_bytes(edge) > usable and edge > 64:
         edge //= 2
@@ -921,22 +998,30 @@ def process_region(region, staging, sources, template, resources, args):
                 log(f'Writing {region.w} x {region.h} pixels at ({region.x}, {region.y})')
                 create_candidate(path, region, sources, local_template, readers, resources['block_size'],
                                  args.overlap, args.compression)
+                if args.cog:
+                    cog_path = staging / f'cog-{uuid.uuid4().hex}.tif'
+                    log(f'Creating COG with {args.cog_overviews} overviews at ({region.x}, {region.y})')
+                    convert_cog(path, cog_path, template['cog_settings'],
+                                resources['codec_threads_per_worker'], region.area)
+                    path.unlink()  # This run's successfully converted staging TIFF only.
+                    path = cog_path
                 size = path.stat().st_size
                 if args.max_size is not None and size > args.max_size * 11 // 10:
                     path.unlink()  # This run's unpublished candidate only.
                     log(f'Candidate {size:,} exceeds target +10%; splitting')
-                    advance_work('Merging and verifying', 0, extra_total=region.area)
+                    advance_work('Merging and verifying', 0, extra_total=region.area * (2 if args.cog else 1))
                     first, rest = split(region, min(0.5, args.max_size / size))
                     pending.extend((rest, first))
                     continue
                 log(f'Verifying all samples: {size:,} bytes at ({region.x}, {region.y})')
                 verified = verify_output(path, region, sources, template, readers,
                                          resources['block_size'], args.overlap)
+                cog_check = dict(cog_validation=verify_cog(path)) if args.cog else {}
                 with opened(path) as ds:
                     if {Path(f) for f in ds.GetFileList()} != {path}:
                         raise MergeError('Unexpected output sidecar')
                 outputs.append(dict(name=path.name, bytes=size, sha256=sha256(path),
-                                    grid_window=vars(region), **verified))
+                                    grid_window=vars(region), **verified, **cog_check))
     finally:
         readers.close()
     return outputs
@@ -970,7 +1055,7 @@ def _run(args, progress):
     report = {"status": "running", "target_file_bytes": args.max_size,
               "max_file_bytes": args.max_size * 11 // 10 if args.max_size is not None else None,
               "base_name": args.base_name, "size_allowance_percent": 10 if args.max_size is not None else None,
-              "overlap_policy": args.overlap, "compression": args.compression,
+              "overlap_policy": args.overlap, "compression": args.compression, "cog": args.cog,
               "gdal": gdal.VersionInfo("RELEASE_NAME"), "outputs": [], "inputs": []}
     started = progress.started
     old_cache = gdal.GetCacheMax()
@@ -988,6 +1073,9 @@ def _run(args, progress):
             settings = compression_settings(args, template['dtype'])
             template['compression_settings'] = settings
             report['compression_settings'] = settings
+            if args.cog:
+                template['cog_settings'] = cog_settings(settings, args.cog_overviews)
+                report['cog_settings'] = template['cog_settings']
             resources = resource_plan(args, template, sources, len(sources))
             gdal.SetCacheMax(resources["gdal_cache_bytes"])
             probe_compression(settings, template)
@@ -1045,6 +1133,8 @@ def _run(args, progress):
                 else:
                     log('Calibrating output size from source samples')
                     bpp = estimate_density(sources, template, args.compression, resources['workers'])
+                    if args.cog and args.cog_overviews != 'none':
+                        bpp *= 4 / 3  # Approximate pyramid overhead; final COG sizes decide acceptance.
                     report['estimated_bytes_per_pixel'] = bpp
                     target = max(1, int(max(1, args.max_size - 4096) / bpp))
                     regions = list(plan(extent, sources, target))
@@ -1054,7 +1144,7 @@ def _run(args, progress):
                     f"{resources['codec_threads_per_worker']} codec threads; "
                     f"RAM budget {resources['ram_budget_bytes'] / 1024**3:.2f} GiB")
                 write_report(output_dir, report)
-                progress.phase_start('Merging and verifying', .4, .5, 2 * sum(r.area for r in regions))
+                progress.phase_start('Merging and verifying', .4, .5, (3 if args.cog else 2) * sum(r.area for r in regions))
                 with ThreadPoolExecutor(max_workers=resources['workers']) as executor:
                     futures = [executor.submit(process_region, region, staging, sources,
                                                template, resources, args) for region in regions]
@@ -1122,6 +1212,10 @@ def parser():
                         help='DEFLATE 1..9 (default 6), ZSTD 1..22 (9), LZMA 0..9 (6); other codecs have no level')
     result.add_argument('--predictor', type=int, choices=(1, 2, 3), default=1,
                         help='1=none (default), 2=horizontal, 3=float; 2/3 only for LZW/DEFLATE/ZSTD')
+    result.add_argument('--cog', action='store_true',
+                        help='Create and validate Cloud Optimized GeoTIFFs; default false')
+    result.add_argument('--cog-overviews', choices=('nearest', 'average', 'mode', 'none'), default='nearest',
+                        help='COG overview resampling (default nearest), or none; ignored without --cog')
     result.add_argument("--block-size", type=int, help="Processing window edge; default auto, up to 2048 pixels")
     result.add_argument("--cache-mib", type=int, help="Optional GDAL cache ceiling in MiB; otherwise derived from RAM budget")
     return result
@@ -1185,7 +1279,7 @@ class Job:
 def start(input_dir, output_dir, *, target_size=None, base_name='mosaic', cpus=None, ram=None,
           overlap='error', compression='deflate', analyze_only=False, block_size=None,
           cache_mib=None, suggest_nodata=False, output_nodata=None, compression_level=None,
-          predictor=1, python_executable=None):
+          predictor=1, cog=False, cog_overviews='nearest', python_executable=None):
     """Run from QGIS 4.2 console without blocking its Qt event loop.
 
     Uses QGIS's own Python in a separate process, so its GDAL cache and CPU
@@ -1206,6 +1300,9 @@ def start(input_dir, output_dir, *, target_size=None, base_name='mosaic', cpus=N
                '--base-name', base_name, '--overlap', overlap, '--compression', compression,
                '--predictor', str(predictor),
                '--cancel-file', str(cancel_file)]
+    if cog:
+        command += ['--cog']
+    command += ['--cog-overviews', cog_overviews]
     if compression_level is not None:
         command += ['--compression-level', str(compression_level)]
     if target_size is not None:

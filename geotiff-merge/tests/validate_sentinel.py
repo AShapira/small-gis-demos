@@ -155,6 +155,8 @@ def main():
     p.add_argument('--compression', default='deflate')
     p.add_argument('--compression-level', type=int)
     p.add_argument('--predictor', type=int, default=1)
+    p.add_argument('--cog', action='store_true')
+    p.add_argument('--cog-overviews', default='nearest')
     p.add_argument('--label', help='Fresh result label when retaining evidence from an earlier run')
     args = p.parse_args()
     work = args.work.resolve()
@@ -174,7 +176,8 @@ def main():
     job = module['start'](work / 'inputs', output, target_size=None if args.single_file else '1GiB',
                           base_name=args.base_name, cpus=args.cpus, ram=args.ram,
                           output_nodata=args.output_nodata, compression=args.compression,
-                          compression_level=args.compression_level, predictor=args.predictor)
+                          compression_level=args.compression_level, predictor=args.predictor,
+                          cog=args.cog, cog_overviews=args.cog_overviews)
     result['start_return_seconds'] = time.monotonic() - began
     timer = QTimer(app)
     timer.setInterval(250)
@@ -201,6 +204,18 @@ def main():
         report = job.result()
         assert report['compression_settings']['codec'] == args.compression.lower()
         assert report['compression_settings']['predictor'] == args.predictor
+        assert report['cog'] == args.cog
+        if args.cog:
+            from osgeo_utils.samples.validate_cloud_optimized_geotiff import validate
+            for item in report['outputs']:
+                with gdal.Open(str(output / item['name'])) as ds:
+                    warnings, failures, _ = validate(ds, full_check=True)
+                    assert not failures, failures
+                    assert ds.GetMetadataItem('LAYOUT', 'IMAGE_STRUCTURE') == 'COG'
+                    assert ds.RasterCount == 3, 'Unexpected alpha band'
+                    if args.cog_overviews != 'none':
+                        assert ds.GetRasterBand(1).GetOverviewCount() > 0
+            result['cog_full_layout_validation'] = True
         assert not errors, errors
         assert result['qgis_cache_unchanged'] and result['qgis_exception_mode_unchanged']
         assert result['heartbeat'] > 2
