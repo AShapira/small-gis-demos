@@ -97,6 +97,118 @@ Catalog registration is a one-time local production step using GeoServer's REST
 interface. The exported `data_dir` already contains the resulting configuration;
 deployment does not depend on a publishing API workflow.
 
+## Run on an air-gapped Windows workstation with Podman Desktop
+
+Use Windows PowerShell **5.1** or PowerShell **7**, with Podman Desktop installed
+and a **running Linux AMD64 Podman machine** prepared before entering the isolated
+network. The launcher uses `podman.exe` directly; Python, Compose, downloads, and
+image builds are not required. It does not install, start, resize, or reconfigure
+the Podman machine, change its default connection, or change Windows firewall rules.
+
+Transfer the private `east-europe-bundle.tar`, its adjacent `.tar.json` checksum
+sidecar, and `load-and-run.ps1`. Verify the archive before extraction:
+
+```powershell
+$archive = 'D:\Maps\east-europe-bundle.tar'
+$expected = Get-Content -LiteralPath ($archive + '.json') -Raw | ConvertFrom-Json
+if ((Get-Item -LiteralPath $archive).Length -ne $expected.bytes -or
+    (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $expected.sha256) {
+    throw 'Archive size or SHA-256 mismatch'
+}
+# Use a fresh destination; do not extract over a previously running deployment.
+New-Item -ItemType Directory -Path 'D:\Maps\Fresh deployment' -ErrorAction Stop
+tar.exe -xf $archive -C 'D:\Maps\Fresh deployment'
+if ($LASTEXITCODE -ne 0) { throw 'Archive extraction failed' }
+```
+
+The launcher accepts an **extracted directory**, not a tar file. Future exports
+include it inside the bundle. For the existing validated archive, keep the new
+script alongside the archive and supply the extracted path; repacking is unnecessary:
+
+```powershell
+& 'D:\Maps\load-and-run.ps1' -BundlePath 'D:\Maps\Fresh deployment\east-europe-bundle'
+# When the script is included in the extracted bundle:
+# .\load-and-run.ps1
+```
+
+Use your organization's approved script execution policy. No permanent policy
+change or Administrator PowerShell session is required by the launcher.
+
+| Parameter | Default / purpose |
+| --- | --- |
+| `-BundlePath` | Directory containing the script; must be an extracted, unmodified bundle |
+| `-Connection` | Current Podman connection; explicitly select one from `podman system connection list` if needed |
+| `-Name` | `east-europe-bundle`; prefix for the container, internal network, and volumes |
+| `-Port` | Bundle `.env` value, **8602** for East Europe |
+| `-BindAddress` | `127.0.0.1`; optional IPv4 address, or `0.0.0.0` for all interfaces |
+| `-TimeoutSeconds` | **600** seconds for WMS startup readiness; individual HTTP requests have bounded timeouts |
+
+The first run verifies every file listed in `SHA256SUMS`, imports the locked
+GeoServer image if absent, then copies the catalog/datasets, fonts, and cache into
+three named Podman volumes: `<name>-catalog`, `<name>-fonts`, and `<name>-cache`.
+The source directory remains unchanged. Copied files are checked again inside
+the Podman machine, and Linux ownership is set there to UID/GID 2000. Fonts are
+read-only in the serving container. Credentials pass through process environment
+variables, not command-line values or temporary credential files. Container
+inspection and logs can still expose sensitive information; keep them private.
+
+Budget disk space separately on Windows and inside the Podman machine: retain
+space for the 9.58-GiB archive plus its extracted files on Windows, and for a second
+copy of the runtime directories, the loaded image, and future tile cache growth
+inside Podman. The prepared cache quota is 20 GiB. Start with 4 vCPU and 16 GiB RAM;
+the bundle configures a 4-GiB GeoServer heap. These are deployment budgets, not
+measured Windows minimums. Copying and hashing can take several minutes and occur
+before the readiness timeout starts. Failed copies retain their volumes for
+inspection; the script never prunes Podman or silently replaces existing data.
+
+Repeated runs verify the original extraction again, reuse a matching deployment,
+and start a stopped container. Bundle or launch-setting changes require a different
+`-Name` (and an unused port if both deployments will run). Conflicting resources,
+missing initialization markers, and partial volume sets fail with an explanation.
+Keep the original extraction immutable: edit the running catalog through GeoServer,
+not the source bundle. The runtime's mutable catalog/cache are not compared against
+their original hashes on restart.
+
+After successful Windows-side WMS/WMTS capabilities and PNG checks:
+
+- Viewer: `http://127.0.0.1:8602/geoserver/www/basemap/index.html`
+- WMS: `http://127.0.0.1:8602/geoserver/wms`
+- WMTS: `http://127.0.0.1:8602/geoserver/gwc/service/wmts`
+
+The script prints commands for the selected connection and deployment name:
+
+```powershell
+podman stop east-europe-bundle
+podman start east-europe-bundle
+podman logs --tail 100 east-europe-bundle
+```
+
+Stopping or removing the serving container retains the named volumes. The restart
+policy applies while the Podman machine is running; this script does not arrange
+Windows login/boot startup. An internal container network and disabled image/plugin
+downloads preserve offline operation. LAN access additionally requires appropriate
+Podman/Windows forwarding and firewall configuration; changing `-BindAddress`
+alone does not establish LAN reachability.
+
+For failures, check `podman info`, the selected connection, Podman-machine free
+space, resource labels, and private container logs. Port conflicts or Windows
+forwarding failures must be resolved before HTTP readiness can pass. Interrupted
+initialization is retained rather than automatically reset: inspect its resources
+and use a new `-Name` for a fresh deployment. Never remove unrelated volumes or
+use a global prune command to recover this demo.
+
+The dependency-free launcher tests can be run in Windows PowerShell:
+
+```powershell
+powershell.exe -NoProfile -File .\tests\test_windows_launcher.ps1
+```
+
+These use a simulated Podman interface. They do **not** establish native Podman
+mount/copy behavior, port forwarding, or live rendering correctness. Native
+acceptance requires a separately authorized deployment, first-start and restart
+checks, WMS/WMTS rendering, and confirmation that source dataset hashes are unchanged.
+The earlier Linux export-validation report is not Windows deployment evidence.
+
 ## Configuration and updates
 
 Edit **config.json** before prefetch. Important settings:

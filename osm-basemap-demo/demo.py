@@ -285,6 +285,7 @@ def prepare_bundle(cfg, target, lock):
     shutil.copyfile(ROOT / 'compose.podman.yaml', target / 'compose.podman.yaml')
     shutil.copyfile(ROOT / "init-permissions.sh", target / "init-permissions.sh")
     shutil.copyfile(ROOT / 'load-and-run.sh', target / 'load-and-run.sh')
+    shutil.copyfile(ROOT / 'load-and-run.ps1', target / 'load-and-run.ps1')
     for name in ("README.md", "THIRD_PARTY_NOTICES.md", "validation-report.md"):
         if (ROOT / name).exists():
             shutil.copyfile(ROOT / name, target / name)
@@ -404,6 +405,9 @@ def export(cfg):
         archived_id = hashlib.sha256(image_archive.extractfile(manifest[0]['Config']).read()).hexdigest()
     if archived_id != expected.removeprefix('sha256:'):
         raise RuntimeError('The existing image archive differs from the locked image; move it aside and export again')
+    # Refresh the portable launcher even when exporting an already prepared bundle.
+    # Do this before SHA256SUMS so future exports cover the exact shipped script.
+    shutil.copyfile(ROOT / 'load-and-run.ps1', BUNDLE / 'load-and-run.ps1')
     files = [p for p in BUNDLE.rglob("*") if p.is_file() and p.name != "SHA256SUMS"]
     (BUNDLE / "SHA256SUMS").write_text("".join(f"{sha256(p)}  {p.relative_to(BUNDLE).as_posix()}\n" for p in sorted(files)))
     name = f"osm-basemap-{json.loads((WORK / 'lock.json').read_text())['snapshot']}.tar"
