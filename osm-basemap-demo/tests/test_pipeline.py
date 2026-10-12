@@ -11,8 +11,8 @@ import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from catalog import adapt_style, english_style, normalize_metadata, normalize_sld_scales, preserve_unlabelled_icons, STYLE_FILES, EXTENT, ENGLISH_POI_PADDING, UNLABELLED_ICON_PADDING
-from demo import read_config
-from verify import mercator, view_bbox, png_info
+from demo import read_config, work_path, bundle_path, runtime_name
+from verify import mercator, view_bbox, png_info, mvt_layer_counts
 
 
 class PipelineTests(unittest.TestCase):
@@ -98,6 +98,34 @@ class PipelineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)/'config.json';p.write_text(json.dumps(cfg))
             with self.assertRaises(ValueError): read_config(p)
+
+    def test_named_package_isolated_from_default_and_path_traversal_rejected(self):
+        root = Path(__file__).resolve().parents[1]
+        original = read_config(root / 'config.json')
+        named = read_config(root / 'east-europe-bundle.json')
+        self.assertEqual(work_path(original), root / 'work')
+        self.assertEqual(bundle_path(original), root / 'bundle')
+        self.assertEqual(runtime_name(original), 'osm-basemap-demo')
+        self.assertEqual(work_path(named), root / 'work/east-europe-bundle')
+        self.assertEqual(bundle_path(named), root / 'packages/east-europe-bundle')
+        self.assertEqual(runtime_name(named), 'east-europe-bundle')
+        self.assertEqual(runtime_name(named, True), 'east-europe-bundle-smoke')
+        self.assertEqual(len(named['countries']), 21)
+        self.assertNotIn('europe/russia', named['countries'])
+        self.assertEqual(len(named['validation_points']), 21)
+        with tempfile.TemporaryDirectory() as d:
+            for name in ('../bundle', '/tmp/bundle', 'bad;name'):
+                named['package_name'] = name
+                p = Path(d) / 'config.json'; p.write_text(json.dumps(named))
+                with self.assertRaises(ValueError): read_config(p)
+
+    def test_vector_coverage_counts_features_not_just_water_tile_presence(self):
+        import gzip
+        layer = b'\x0a\x08building\x12\x00\x12\x00'
+        tile = b'\x1a' + bytes([len(layer)]) + layer
+        self.assertEqual(mvt_layer_counts(tile), {'building': 2})
+        self.assertEqual(mvt_layer_counts(gzip.compress(tile)), {'building': 2})
+        with self.assertRaises((ValueError, IndexError)): mvt_layer_counts(b'\x1a\xff')
 
     def test_mercator_and_zoom_scale(self):
         x,y=mercator(0,0)

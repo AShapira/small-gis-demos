@@ -1,5 +1,6 @@
 """Real-data and live-service acceptance checks; writes durable evidence."""
 from __future__ import annotations
+import gzip
 import hashlib
 import json
 import math
@@ -11,8 +12,41 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-from demo import Engine, WORK, env_values, save_json
+from demo import Engine, work_path, runtime_name, env_values, save_json
 from catalog import EXTENT, Rest, STYLE_GROUPS, BASEMAP_STYLES
+
+
+def mvt_layer_counts(blob):
+    """Read MVT layer names and feature counts without decoding geometry."""
+    def fields(data):
+        pos = 0
+        def varint():
+            nonlocal pos
+            result = shift = 0
+            while True:
+                byte = data[pos]; pos += 1
+                result |= (byte & 127) << shift
+                if byte < 128: return result
+                shift += 7
+                if shift > 63: raise ValueError('Invalid protobuf varint')
+        while pos < len(data):
+            key = varint(); wire = key & 7
+            if wire == 0: value = varint()
+            elif wire == 2:
+                size = varint(); value = data[pos:pos + size]; pos += size
+            elif wire in (1, 5):
+                size = 8 if wire == 1 else 4; value = data[pos:pos + size]; pos += size
+            else: raise ValueError('Unsupported protobuf wire type')
+            if pos > len(data): raise ValueError('Truncated protobuf')
+            yield key >> 3, value
+    raw = gzip.decompress(blob) if blob.startswith(b'\x1f\x8b') else blob
+    counts = {}
+    for number, layer in fields(raw):
+        if number != 3: continue
+        parts = list(fields(layer))
+        name = next(value.decode() for field, value in parts if field == 1)
+        counts[name] = sum(field == 2 for field, value in parts)
+    return counts
 
 
 def mercator(lon, lat):
@@ -50,6 +84,7 @@ def fetch_png(base, endpoint, params, path):
 
 
 def validate(cfg, target, container_name=None, cold_cache=False):
+    WORK = work_path(cfg)
     evidence = target / 'validation'
     evidence.mkdir(exist_ok=True)
     report = {'complete': False, 'checks': {}, 'renders': {}, 'wmts_cache_initially_empty': cold_cache, 'notes': ['Visual quality requires inspection of the saved PNGs; valid PNG responses alone are not visual approval.']}
@@ -70,11 +105,19 @@ def validate(cfg, target, container_name=None, cold_cache=False):
                     report['checks']['vector_layers'] = [l['id'] for l in json.loads(metadata['json'])['vector_layers']]
                     assert set(('building','transportation','place','water')) <= set(report['checks']['vector_layers'])
                     points = [('Prague',14.421,50.087)] if target.name == 'smoke' else [('Prague',14.421,50.087),('Bratislava',17.108,48.146),('border',17.65,48.91)]
+                    if target.name != "smoke":
+                        points += cfg.get("validation_points", [])
+                    report["checks"]["coverage_points"] = [point[0] for point in points]
                     for name, lon, lat in points:
                         z = cfg['source_maxzoom']; n = 2 ** z
                         x = int((lon+180)/360*n)
                         y = int((1-math.asinh(math.tan(math.radians(lat)))/math.pi)/2*n)
-                        assert db.execute('SELECT 1 FROM tiles WHERE zoom_level=? AND tile_column=? AND tile_row=?', (z,x,n-1-y)).fetchone(), name
+                        row = db.execute('SELECT tile_data FROM tiles WHERE zoom_level=? AND tile_column=? AND tile_row=?', (z,x,n-1-y)).fetchone()
+                        assert row, name
+                        counts = mvt_layer_counts(row[0])
+                        assert counts.get('transportation', 0) > 0, (name, counts)
+                        if name != 'border': assert counts.get('building', 0) > 0, (name, counts)
+                        report['checks'].setdefault('coverage_features', {})[name] = counts
                 else:
                     for table, in db.execute('SELECT table_name FROM gpkg_contents'):
                         count = db.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
@@ -134,6 +177,8 @@ def validate(cfg, target, container_name=None, cold_cache=False):
         views.update({f'zoom{z}': [14.421,50.087,z] for z in (14,16,17)})
         if target.name != 'smoke':
             views.update({'bratislava':[17.108,48.146,15], 'border':[17.65,48.91,12]})
+        if target.name != "smoke":
+            views.update({"coverage-" + name: [lon, lat, 12] for name, lon, lat in cfg.get("validation_points", [])})
         for style in BASEMAP_STYLES:
             for view, (lon,lat,z) in views.items():
                 params = {'SERVICE':'WMS','VERSION':'1.3.0','REQUEST':'GetMap','LAYERS':'omt:'+style,'STYLES':'','CRS':'EPSG:3857','BBOX':','.join(map(str,view_bbox(lon,lat,z))),'WIDTH':768,'HEIGHT':512,'FORMAT':'image/png'}
@@ -151,7 +196,7 @@ def validate(cfg, target, container_name=None, cold_cache=False):
             report['renders'][style+'-4326'] = fetch_png(base, '/wms', params, evidence / f'{style}-4326.png')
             save_json(report_path, report)
         engine = Engine(cfg)
-        name = container_name or ('osm-basemap-smoke' if target.name == 'smoke' else 'osm-basemap-demo')
+        name = container_name or runtime_name(cfg, target.name == 'smoke')
         inspection = json.loads(engine.run(['inspect', name], capture=True))[0]
         networks = inspection['NetworkSettings']['Networks']
         for network in networks:

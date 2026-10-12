@@ -1,0 +1,156 @@
+{
+  "countries": [
+    "europe/poland",
+    "europe/czech-republic",
+    "europe/slovakia",
+    "europe/hungary",
+    "europe/romania",
+    "europe/bulgaria",
+    "europe/moldova",
+    "europe/ukraine",
+    "europe/belarus",
+    "europe/estonia",
+    "europe/latvia",
+    "europe/lithuania",
+    "europe/slovenia",
+    "europe/croatia",
+    "europe/bosnia-herzegovina",
+    "europe/serbia",
+    "europe/montenegro",
+    "europe/kosovo",
+    "europe/macedonia",
+    "europe/albania",
+    "europe/greece"
+  ],
+  "snapshot": "261008",
+  "source_maxzoom": 14,
+  "display_maxzoom": 18,
+  "default_style": "osm-bright",
+  "threads": 8,
+  "java_heap": "12g",
+  "build_memory": "20g",
+  "geoserver_heap": "4G",
+  "port": 8602,
+  "engine": "auto",
+  "images": {
+    "geoserver": "docker.io/kartoza/geoserver:3.0.1",
+    "gdal": "ghcr.io/osgeo/gdal:ubuntu-small-3.11.4",
+    "java": "docker.io/library/eclipse-temurin:21-jre"
+  },
+  "planetiler_version": "0.10.2",
+  "styles_commit": "f98a24dad4f14fe66397c5221e0f282e8681cfb6",
+  "smoke_bbox": [
+    14.32,
+    50.01,
+    14.55,
+    50.15
+  ],
+  "package_name": "east-europe-bundle",
+  "validation_points": [
+    [
+      "Warsaw",
+      21.0122,
+      52.2297
+    ],
+    [
+      "Prague",
+      14.421,
+      50.087
+    ],
+    [
+      "Bratislava",
+      17.108,
+      48.146
+    ],
+    [
+      "Budapest",
+      19.0402,
+      47.4979
+    ],
+    [
+      "Bucharest",
+      26.1025,
+      44.4268
+    ],
+    [
+      "Sofia",
+      23.3219,
+      42.6977
+    ],
+    [
+      "Chisinau",
+      28.8353,
+      47.0105
+    ],
+    [
+      "Kyiv",
+      30.5234,
+      50.4501
+    ],
+    [
+      "Minsk",
+      27.5615,
+      53.9045
+    ],
+    [
+      "Tallinn",
+      24.7536,
+      59.437
+    ],
+    [
+      "Riga",
+      24.1052,
+      56.9496
+    ],
+    [
+      "Vilnius",
+      25.2797,
+      54.6872
+    ],
+    [
+      "Ljubljana",
+      14.5058,
+      46.0569
+    ],
+    [
+      "Zagreb",
+      15.9819,
+      45.815
+    ],
+    [
+      "Sarajevo",
+      18.4131,
+      43.8563
+    ],
+    [
+      "Belgrade",
+      20.4489,
+      44.7866
+    ],
+    [
+      "Podgorica",
+      19.2594,
+      42.4304
+    ],
+    [
+      "Pristina",
+      21.1655,
+      42.6629
+    ],
+    [
+      "Skopje",
+      21.4316,
+      41.9981
+    ],
+    [
+      "Tirana",
+      19.8187,
+      41.3275
+    ],
+    [
+      "Athens",
+      23.7275,
+      37.9838
+    ]
+  ]
+}

@@ -1,0 +1,75 @@
+# Standalone replacement for a deployment initialized by load-and-run.ps1.
+# Use this file alone, with the original bundle's .env. Do not merge the Linux
+# compose.yaml or compose.podman.yaml: their mounts/network are different.
+name: ${BASEMAP_NAME:-east-europe-bundle}-windows
+services:
+  geoserver:
+    container_name: ${BASEMAP_NAME:-east-europe-bundle}
+    image: ${GEOSERVER_IMAGE:-docker.io/kartoza/geoserver:3.0.1}
+    platform: linux/amd64
+    pull_policy: never
+    user: "0:0"
+    restart: unless-stopped
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${GEOSERVER_PORT:-8602}:8080"
+    environment:
+      STABLE_EXTENSIONS: mbstyle-plugin
+      ACTIVE_EXTENSIONS: mbstyle-plugin
+      COMMUNITY_EXTENSIONS: mbtiles-store-plugin
+      FORCE_DOWNLOAD_STABLE_EXTENSIONS: "false"
+      FORCE_DOWNLOAD_COMMUNITY_EXTENSIONS: "false"
+      SAMPLE_DATA: "false"
+      RECREATE_DATADIR: "false"
+      GEOSERVER_DATA_DIR: /opt/geoserver/data_dir
+      GEOWEBCACHE_CACHE_DIR: /opt/geoserver/gwc
+      GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
+      GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:?Use the original bundle .env}
+      INITIAL_MEMORY: 1G
+      MAXIMUM_MEMORY: ${GEOSERVER_HEAP:-4G}
+      JAVA_TOOL_OPTIONS: -DMBSTYLE_ROOT_TILE_PIXELS=256
+      GOOGLE_FONTS_NAMES: ""
+      GEOSERVER_DISABLE_STATIC_WEB_FILES: "false"
+      GEOSERVER_STATIC_WEB_FILES_SCRIPT: SELF
+    # Recreate the hook that the launcher copied into its old container. Keeping
+    # it inline avoids Windows bind mounts and extra helper images/services.
+    entrypoint: [/bin/bash, -ec]
+    command:
+      - |
+        if ! test -s /opt/geoserver/data_dir/.offline-launcher-ready; then
+          echo 'The catalog volume was not initialized by load-and-run.ps1.' >&2
+          exit 1
+        fi
+        mkdir -p /docker-entrypoint-geoserver.d
+        cat > /docker-entrypoint-geoserver.d/99-demo-permissions.sh <<'HOOK'
+        #!/bin/bash
+        set -euo pipefail
+        find /opt/geoserver/data_dir -path /opt/geoserver/data_dir/data -prune -o -exec chown 2000:2000 {} +
+        chown -R 2000:2000 /opt/geoserver/gwc
+        HOOK
+        chmod 0755 /docker-entrypoint-geoserver.d/99-demo-permissions.sh
+        exec /bin/bash /scripts/entrypoint.sh
+    volumes:
+      - catalog:/opt/geoserver/data_dir
+      - fonts:/opt/fonts:ro
+      - cache:/opt/geoserver/gwc
+    networks: [access]
+    healthcheck:
+      test: [CMD-SHELL, "curl -fsS 'http://127.0.0.1:8080/geoserver/ows?service=WMS&request=GetCapabilities' >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+networks:
+  access:
+    driver: bridge
+    internal: false
+volumes:
+  catalog:
+    external: true
+    name: ${BASEMAP_NAME:-east-europe-bundle}-catalog
+  fonts:
+    external: true
+    name: ${BASEMAP_NAME:-east-europe-bundle}-fonts
+  cache:
+    external: true
+    name: ${BASEMAP_NAME:-east-europe-bundle}-cache

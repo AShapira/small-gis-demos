@@ -9,12 +9,15 @@
   language.value=cfg.default_language||'en';
   const countryNames={'europe/czech-republic':'Czechia','europe/slovakia':'Slovakia'};
   const snapshot='20'+cfg.snapshot.slice(0,2)+'-'+cfg.snapshot.slice(2,4)+'-'+cfg.snapshot.slice(4,6);
-  document.getElementById('coverage').textContent=cfg.countries.map(x=>countryNames[x]||x.split('/').pop()).join(' · ')+' · '+snapshot;
+  const coverage=document.getElementById('coverage');
+  coverage.title=cfg.countries.map(x=>countryNames[x]||x.split('/').pop()).join(' · ');
+  coverage.textContent=(cfg.countries.length>4?cfg.countries.length+' countries':coverage.title)+' · '+snapshot;
   const extent=ol.proj.get('EPSG:3857').getExtent();
   const resolutions=Array.from({length:cfg.maxzoom+1},(_,z)=>ol.extent.getWidth(extent)/256/2**z);
   const grid=new ol.tilegrid.WMTS({origin:ol.extent.getTopLeft(extent),resolutions,matrixIds:resolutions.map((_,z)=>'EPSG:3857:'+z)});
   const layer=new ol.layer.Tile();
   const map=new ol.Map({target:'map',layers:[layer],view:new ol.View({center:ol.proj.fromLonLat([17.2,49]),zoom:6,maxZoom:cfg.maxzoom})});
+  if(cfg.countries.length>4&&cfg.bounds)map.getView().fit(ol.proj.transformExtent(cfg.bounds,'EPSG:4326','EPSG:3857'),{padding:[40,40,40,40]});
   let activeSourceKey;
   function update(){
     const name='omt:'+style.value+(language.value==='en'?'-en':'');

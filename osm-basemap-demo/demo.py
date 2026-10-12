@@ -27,6 +27,23 @@ BUNDLE = ROOT / "bundle"
 STYLES = {"osm-bright": "osm-bright-gl", "positron": "positron-gl", "dark-matter": "dark-matter", "toner": "toner-gl", "maptiler-basic": "maptiler-basic-gl"}
 
 
+def work_path(cfg):
+    return ROOT / "work" / cfg["package_name"] if cfg.get("package_name") else ROOT / "work"
+
+
+def bundle_path(cfg):
+    return ROOT / "packages" / cfg["package_name"] if cfg.get("package_name") else ROOT / "bundle"
+
+
+def runtime_name(cfg, smoke=False):
+    return (cfg.get("package_name") or "osm-basemap") + ("-smoke" if smoke else ("" if cfg.get("package_name") else "-demo"))
+
+
+def configure_layout(cfg):
+    global WORK, BUNDLE
+    WORK, BUNDLE = work_path(cfg), bundle_path(cfg)
+
+
 def save_json(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -54,6 +71,8 @@ def read_config(path):
         raise ValueError("Expected source_maxzoom <= 14 and display_maxzoom in 14..22")
     if not re.fullmatch(r"\d+[gGmM]", cfg["java_heap"]):
         raise ValueError("java_heap must be a Java memory size, for example 16g")
+    if cfg.get("package_name") and not re.fullmatch(r"[a-z][a-z0-9-]{0,62}", cfg["package_name"]):
+        raise ValueError("package_name must be a lowercase filesystem-safe slug")
     return cfg
 
 
@@ -96,6 +115,7 @@ def execute(args, *, log=None, capture=False, timeout=None):
 
 class Engine:
     def __init__(self, cfg):
+        self.work = work_path(cfg)
         choice = cfg.get("engine", "auto")
         self.exe = (shutil.which("podman") or shutil.which("docker")) if choice == "auto" else shutil.which(choice)
         if not self.exe:
@@ -106,7 +126,7 @@ class Engine:
         return execute([self.exe, *args], **kwargs)
 
     def image(self, role):
-        return json.loads((WORK / "lock.json").read_text())["images"][role]["id"]
+        return json.loads((self.work / "lock.json").read_text())["images"][role]["id"]
 
     def container(self, role, command, *, mounts=(), network="none", options=(), log=None):
         args = ["run", "--rm", "--pull=never", "--network", network, *options]
@@ -150,7 +170,7 @@ def snapshot(cfg):
 
 
 def prefetch(cfg):
-    WORK.mkdir(exist_ok=True)
+    WORK.mkdir(parents=True, exist_ok=True)
     lockpath = WORK / "lock.json"
     previous = json.loads(lockpath.read_text()) if lockpath.exists() else {}
     config_hash = hashlib.sha256(json.dumps(cfg, sort_keys=True).encode()).hexdigest()
@@ -222,7 +242,7 @@ def verify_inputs(cfg):
 def build(cfg, smoke=False):
     lock = verify_inputs(cfg)
     engine = Engine(cfg)
-    target = ROOT / ("work/smoke" if smoke else "bundle")
+    target = WORK / "smoke" if smoke else BUNDLE
     data = target / "data_dir" / "data"
     data.mkdir(parents=True, exist_ok=True)
     data_inputs = {name: entry for name,entry in lock['files'].items() if name.endswith('.osm.pbf') or name.startswith('ne_') or name in ('planetiler.jar','water-polygons-split-3857.zip','lake_centerline.shp.zip','natural_earth_vector.sqlite.zip')}
@@ -281,14 +301,16 @@ def prepare_bundle(cfg, target, lock):
     shutil.copyfile(WORK / "inputs/ol-LICENSE.md", target / "licenses/OpenLayers.md")
     for source in (WORK / 'inputs').glob('license-*.md'):
         shutil.copyfile(source, target / 'licenses' / source.name)
-    shutil.copyfile(ROOT / "compose.yaml", target / "compose.yaml")
+    compose = (ROOT / "compose.yaml").read_text()
+    (target / "compose.yaml").write_text(compose.replace("name: osm-basemap-demo", "name: " + runtime_name(cfg)))
     shutil.copyfile(ROOT / 'compose.podman.yaml', target / 'compose.podman.yaml')
     shutil.copyfile(ROOT / "init-permissions.sh", target / "init-permissions.sh")
     shutil.copyfile(ROOT / 'load-and-run.sh', target / 'load-and-run.sh')
     shutil.copyfile(ROOT / 'load-and-run.ps1', target / 'load-and-run.ps1')
     for name in ("README.md", "THIRD_PARTY_NOTICES.md", "validation-report.md"):
         if (ROOT / name).exists():
-            shutil.copyfile(ROOT / name, target / name)
+            destination = "reference-czechia-slovakia-validation.md" if cfg.get("package_name") and name == "validation-report.md" else name
+            shutil.copyfile(ROOT / name, target / destination)
     shutil.copyfile(WORK / "lock.json", target / "source-manifest.json")
     save_json(target / "config.json", cfg)
     env = target / ".env"
@@ -353,7 +375,7 @@ def env_values(target):
 def start(cfg, target, offline=True):
     engine = Engine(cfg)
     env = env_values(target)
-    name = "osm-basemap-smoke" if target != BUNDLE else "osm-basemap-demo"
+    name = runtime_name(cfg, target.name == "smoke")
     exists = engine.run(["ps", "-a", "--filter", f"name=^{name}$", "--format", "{{.Names}}"], capture=True).strip()
     if exists:
         raise RuntimeError(f"{name} already exists; use stop before a fresh start")
@@ -380,7 +402,7 @@ def start(cfg, target, offline=True):
 
 
 def stop(cfg, target):
-    name = "osm-basemap-smoke" if target != BUNDLE else "osm-basemap-demo"
+    name = runtime_name(cfg, target.name == "smoke")
     Engine(cfg).run(["rm", "-f", name])
 
 
@@ -389,7 +411,7 @@ def export(cfg):
     exports = ROOT / "exports"
     exports.mkdir(exist_ok=True)
     # Export from a stopped server so SQLite/catalog/cache files form a consistent snapshot.
-    active = engine.run(["ps", "--filter", "name=^osm-basemap-demo$", "--format", "{{.Names}}"], capture=True).strip()
+    active = engine.run(["ps", "--filter", f"name=^{runtime_name(cfg)}$", "--format", "{{.Names}}"], capture=True).strip()
     if active:
         raise RuntimeError("Stop the demo before exporting a consistent data directory")
     actual = json.loads(engine.run(['image','inspect',cfg['images']['geoserver']],capture=True))[0]['Id']
@@ -411,11 +433,12 @@ def export(cfg):
     files = [p for p in BUNDLE.rglob("*") if p.is_file() and p.name != "SHA256SUMS"]
     (BUNDLE / "SHA256SUMS").write_text("".join(f"{sha256(p)}  {p.relative_to(BUNDLE).as_posix()}\n" for p in sorted(files)))
     name = f"osm-basemap-{json.loads((WORK / 'lock.json').read_text())['snapshot']}.tar"
+    name = cfg["package_name"] + ".tar" if cfg.get("package_name") else name
     archive_path = exports / name
     archive_path.touch(mode=0o600, exist_ok=True)
     archive_path.chmod(0o600)  # Includes private deployment credentials/security state.
     with tarfile.open(archive_path, "w") as archive:
-        archive.add(BUNDLE, arcname="osm-basemap")
+        archive.add(BUNDLE, arcname=cfg.get("package_name", "osm-basemap"))
     save_json(exports / (name + ".json"), {"sha256": sha256(exports / name), "bytes": (exports / name).stat().st_size})
     print(exports / name)
 
@@ -427,6 +450,7 @@ def main():
     parser.add_argument("--smoke", action="store_true")
     args = parser.parse_args()
     cfg = read_config(args.config)
+    configure_layout(cfg)
     target = WORK / "smoke" if args.smoke else BUNDLE
     if args.command == "preflight": preflight(cfg)
     elif args.command == "prefetch": prefetch(cfg)

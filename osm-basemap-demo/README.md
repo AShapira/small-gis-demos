@@ -97,6 +97,51 @@ Catalog registration is a one-time local production step using GeoServer's REST
 interface. The exported `data_dir` already contains the resulting configuration;
 deployment does not depend on a publishing API workflow.
 
+## Eastern Europe package
+
+The separate `east-europe-bundle.json` profile covers Poland, Czechia, Slovakia,
+Hungary, Romania, Bulgaria, Moldova, Ukraine, Belarus, Estonia, Latvia, Lithuania,
+Slovenia, Croatia, Bosnia and Herzegovina, Serbia, Montenegro, Kosovo,
+North Macedonia, Albania and Greece. Russia is excluded from the regional sources;
+worldwide Natural Earth context is retained. Extracts use the common 2026-10-08
+snapshot. Geofabrik border buffers can contain a small amount of neighboring data.
+
+Run the production commands with `--config east-europe-bundle.json`, for example:
+
+```bash
+python3 demo.py preflight --config east-europe-bundle.json
+python3 demo.py prefetch --config east-europe-bundle.json
+python3 demo.py build --config east-europe-bundle.json
+python3 demo.py start --config east-europe-bundle.json
+python3 demo.py validate --config east-europe-bundle.json
+python3 demo.py stop --config east-europe-bundle.json
+python3 demo.py export --config east-europe-bundle.json
+```
+
+Its work files live in `work/east-europe-bundle/`, prepared runtime in
+`packages/east-europe-bundle/`, and export in `exports/east-europe-bundle.tar`.
+The archive extracts to `east-europe-bundle/`; run `bash load-and-run.sh` there.
+The independent server uses port **8602** and a separate Compose project,
+credentials and 20-GiB cache quota. The Czechia/Slovakia demo is unchanged.
+This profile limits preparation to eight CPUs, 12-GiB Java heap and a 20-GiB
+container budget. Reserve at least 100 GiB of preparation disk space; actual
+requirements depend on scratch data and retained exports. Acceptance tests add
+high-zoom tile checks and ten style/language renders for each of the 21 capitals.
+These are coverage samples, not exhaustive pixel-level country verification.
+
+To verify the exact export through a fresh rootless Podman Compose startup:
+
+```bash
+python3 tests/offline_bundle.py exports/east-europe-bundle.tar \
+  --destination .artifacts/east-europe-offline-check --port 8603
+```
+
+This optional acceptance command requires the Playwright setup described below,
+loads the included image, checks all manifest hashes, and starts the restored
+catalog without provisioning it again. The destination must not already exist.
+The generated `exports/east-europe-bundle.validation.json` is tied to the exact
+archive checksum. Runtime outbound access is blocked by an internal network.
+
 ## Run on an air-gapped Windows workstation with Podman Desktop
 
 Use Windows PowerShell **5.1** or PowerShell **7**, with Podman Desktop installed
@@ -209,6 +254,88 @@ acceptance requires a separately authorized deployment, first-start and restart
 checks, WMS/WMTS rendering, and confirmation that source dataset hashes are unchanged.
 The earlier Linux export-validation report is not Windows deployment evidence.
 
+### Replace the launcher deployment with Windows Compose
+
+If GeoServer is healthy inside its container but the launcher reports
+`Timed out waiting for Windows-side WMS readiness`, its internal bridge may be
+blocking published ports. Use the standalone [compose.windows.yaml](compose.windows.yaml)
+to replace that container on a regular bridge. Do not combine it with either
+`compose.yaml` or `compose.podman.yaml`, and do not switch Podman connections or
+rootful/rootless mode during this migration: the existing image and volumes must
+remain visible to the selected connection.
+
+This configuration reuses the launcher's three named volumes as **external**
+volumes; it refuses to create empty replacements. It restores the permission hook
+inside the new container without Windows bind mounts, retains the catalog and
+credentials, disables image pulls/plugin downloads, and publishes on
+`127.0.0.1:8602` by default. The new regular bridge allows outbound routing through
+the Podman machine; the workstation/network air gap provides external isolation.
+It is a migration for successfully initialized volumes, not a first-install loader.
+
+Copy `compose.windows.yaml` into the extracted bundle beside its original `.env`.
+Leave the existing files and `SHA256SUMS` unchanged. In Windows PowerShell, run
+these preparation checks **before stopping the old container**:
+
+```powershell
+Set-Location 'D:\Maps\east-europe-bundle'  # Your extracted bundle directory
+function Invoke-CheckedPodman {
+    & podman @args
+    if ($LASTEXITCODE -ne 0) { throw 'Podman command failed; stop here.' }
+}
+Invoke-CheckedPodman compose version
+$env:BASEMAP_NAME = 'east-europe-bundle'  # Match the original -Name, if customized
+foreach ($suffix in @('catalog', 'fonts', 'cache')) {
+    Invoke-CheckedPodman volume exists "$env:BASEMAP_NAME-$suffix"
+}
+Invoke-CheckedPodman exec $env:BASEMAP_NAME test -s /opt/geoserver/data_dir/.offline-launcher-ready
+# Pin the replacement to the exact image already running; do not pull a tag.
+$env:GEOSERVER_IMAGE = (Invoke-CheckedPodman inspect --format '{{.Image}}' $env:BASEMAP_NAME).Trim()
+Invoke-CheckedPodman image exists $env:GEOSERVER_IMAGE
+# Rendered configuration includes the password, so suppress successful output.
+Invoke-CheckedPodman compose --env-file .env -f compose.windows.yaml config > $null
+```
+
+`podman compose` requires an already installed Compose provider. If the version or
+configuration check fails, retain the old deployment and resolve the missing
+offline prerequisite before proceeding. No tool installation is attempted here.
+
+Once these checks pass, stop and remove **only the old serving container**. The
+launcher did not create a Compose project, so `compose down` cannot remove it:
+
+```powershell
+Invoke-CheckedPodman stop $env:BASEMAP_NAME
+Invoke-CheckedPodman rm $env:BASEMAP_NAME
+Invoke-CheckedPodman compose --env-file .env -f compose.windows.yaml up -d
+```
+
+No `-v`, `volume rm`, or prune command is used. The old internal network can remain
+unused. After GeoServer finishes starting, test from **Windows**, not `podman exec`:
+
+```powershell
+curl.exe --noproxy "*" --max-time 15 -sS -D - -o NUL `
+  'http://127.0.0.1:8602/geoserver/ows?service=WMS&request=GetCapabilities'
+```
+
+Expect HTTP 200, then open
+`http://127.0.0.1:8602/geoserver/www/basemap/index.html`.
+Container health alone does not establish Windows/browser reachability. This
+Compose file is configuration-validated; live acceptance on the restricted
+workstation still requires that Windows-side request to succeed.
+
+Use Compose for subsequent lifecycle operations, from the same bundle directory:
+
+```powershell
+podman compose --env-file .env -f compose.windows.yaml down
+podman compose --env-file .env -f compose.windows.yaml up -d
+```
+
+External volumes survive `down`. Do not rerun the original PowerShell launcher
+against this Compose-managed deployment. If `-Name` was customized, set
+`BASEMAP_NAME` to that name in each new PowerShell session. The original bundle's
+image tag remains available locally after the launcher import; the first migration
+above additionally pins the exact running image through the process environment.
+Keep Compose output and logs private because providers may display credentials.
+
 ## Configuration and updates
 
 Edit **config.json** before prefetch. Important settings:
@@ -255,14 +382,18 @@ portable package.
 
 Use a Linux AMD64 Compute Engine VM with Docker Engine/Compose already installed.
 Start with 4 vCPU, 16 GiB RAM and enough persistent disk for the exported bundle
-and tile cache. Transfer `exports/osm-basemap-<snapshot>.tar` through your approved
-path into the isolated network. No GCP credentials are embedded in the package.
+and tile cache. Transfer `exports/osm-basemap-<snapshot>.tar` or the named
+`exports/east-europe-bundle.tar` through your approved path into the isolated network. No GCP credentials are embedded in the package.
 
 ```bash
 tar -xf osm-basemap-261008.tar
 cd osm-basemap
 bash load-and-run.sh
 ```
+
+For the Eastern Europe profile, extract `east-europe-bundle.tar`, change into
+`east-europe-bundle/`, and run the same loader. Its port is **8602**; substitute
+that port in the example service URLs below.
 
 The loader checks file checksums, loads the archived image, verifies its image ID,
 sets ownership only within this bundle, and starts Compose with pulls disabled.
