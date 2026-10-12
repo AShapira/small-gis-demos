@@ -260,12 +260,12 @@ function Start-OfflineBundle {
     $labels = @{
         'io.small-gis-demos.offline.name' = $Name
         'io.small-gis-demos.offline.bundle' = $fingerprint
-        'io.small-gis-demos.offline.settings' = (Get-TextHash "windows-podman-v1|$Name|$BindAddress|$Port|$($bundle.Env.GEOSERVER_HEAP)|$($bundle.Image)")
+        'io.small-gis-demos.offline.settings' = (Get-TextHash "windows-podman-v2-bridge|$Name|$BindAddress|$Port|$($bundle.Env.GEOSERVER_HEAP)|$($bundle.Image)")
     }
     $labelArgs = @()
     foreach ($key in ($labels.Keys | Sort-Object)) { $labelArgs += @('--label', "$key=$($labels[$key])") }
     $volumes = @("$Name-catalog", "$Name-fonts", "$Name-cache")
-    $network = "$Name-isolated"
+    $network = "$Name-bridge"
     $helper = "$Name-initialize"
     $existingVolumes = @()
     foreach ($volume in $volumes) {
@@ -279,7 +279,8 @@ function Start-OfflineBundle {
     if ($networkExists) {
         $net = @(Read-PodmanJson @('network', 'inspect', $network))[0]
         Assert-ManagedResource $net.labels $labels $network
-        if (-not $net.internal) { throw "Network '$network' is not internal." }
+        if ($net.internal) { throw "Network '$network' is internal. Use a new deployment name." }
+        if ($net.driver -ne 'bridge') { throw "Network '$network' is not a bridge. Use a new deployment name." }
     }
     if (Test-PodmanResource 'container' $helper) { throw "Initialization container '$helper' already exists. Inspect the interrupted deployment or choose a new -Name." }
     $containerExists = Test-PodmanResource 'container' $Name
@@ -305,7 +306,7 @@ function Start-OfflineBundle {
         $helperCreated = $false
         $null = New-Item -ItemType Directory -Path $temp
         try {
-            if (-not $networkExists) { $null = Invoke-Podman (@('network', 'create', '--internal') + $labelArgs + @($network)) }
+            if (-not $networkExists) { $null = Invoke-Podman (@('network', 'create', '--driver', 'bridge') + $labelArgs + @($network)) }
             if ($volumeCount -eq 0) {
                 foreach ($volume in $volumes) { $null = Invoke-Podman (@('volume', 'create') + $labelArgs + @($volume)) }
             }

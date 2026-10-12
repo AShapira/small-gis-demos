@@ -176,6 +176,23 @@ script alongside the archive and supply the extracted path; repacking is unneces
 # .\load-and-run.ps1
 ```
 
+For a fresh start, extract the original archive into a new directory and keep
+checksum verification enabled. Run the updated launcher from outside that
+extraction so the bundle's checksummed files remain unchanged. Use an unused
+`-Name` to create fresh volumes and a new network; old launcher settings are
+rejected rather than reused. Stop the previous deployment first if retaining
+port 8602. The old volumes remain untouched and the new volumes require another
+copy of the datasets:
+
+```powershell
+& 'D:\Maps\load-and-run.ps1' `
+  -BundlePath 'D:\Maps\Fresh deployment\east-europe-bundle' `
+  -Name 'east-europe-clean' -Port 8602
+```
+
+The PowerShell launcher creates Podman resources directly and does not read the
+Compose files. No Compose changes or checksum bypass are needed for this path.
+
 Use your organization's approved script execution policy. No permanent policy
 change or Administrator PowerShell session is required by the launcher.
 
@@ -183,7 +200,7 @@ change or Administrator PowerShell session is required by the launcher.
 | --- | --- |
 | `-BundlePath` | Directory containing the script; must be an extracted, unmodified bundle |
 | `-Connection` | Current Podman connection; explicitly select one from `podman system connection list` if needed |
-| `-Name` | `east-europe-bundle`; prefix for the container, internal network, and volumes |
+| `-Name` | `east-europe-bundle`; prefix for the container, bridge network, and volumes |
 | `-Port` | Bundle `.env` value, **8602** for East Europe |
 | `-BindAddress` | `127.0.0.1`; optional IPv4 address, or `0.0.0.0` for all interfaces |
 | `-TimeoutSeconds` | **600** seconds for WMS startup readiness; individual HTTP requests have bounded timeouts |
@@ -230,10 +247,13 @@ podman logs --tail 100 east-europe-bundle
 
 Stopping or removing the serving container retains the named volumes. The restart
 policy applies while the Podman machine is running; this script does not arrange
-Windows login/boot startup. An internal container network and disabled image/plugin
-downloads preserve offline operation. LAN access additionally requires appropriate
-Podman/Windows forwarding and firewall configuration; changing `-BindAddress`
-alone does not establish LAN reachability.
+Windows login/boot startup. The serving container uses a regular bridge named
+`<name>-bridge` so its published port can be reached from Windows. Image pulls and
+plugin downloads remain disabled, and the initialization helper uses
+`--network=none`. The regular bridge permits outbound routing through the Podman machine;
+external isolation comes from the workstation/network air gap. LAN access
+additionally requires appropriate Podman/Windows forwarding and firewall
+configuration; changing `-BindAddress` alone does not establish LAN reachability.
 
 For failures, check `podman info`, the selected connection, Podman-machine free
 space, resource labels, and private container logs. Port conflicts or Windows
@@ -253,88 +273,6 @@ mount/copy behavior, port forwarding, or live rendering correctness. Native
 acceptance requires a separately authorized deployment, first-start and restart
 checks, WMS/WMTS rendering, and confirmation that source dataset hashes are unchanged.
 The earlier Linux export-validation report is not Windows deployment evidence.
-
-### Replace the launcher deployment with Windows Compose
-
-If GeoServer is healthy inside its container but the launcher reports
-`Timed out waiting for Windows-side WMS readiness`, its internal bridge may be
-blocking published ports. Use the standalone [compose.windows.yaml](compose.windows.yaml)
-to replace that container on a regular bridge. Do not combine it with either
-`compose.yaml` or `compose.podman.yaml`, and do not switch Podman connections or
-rootful/rootless mode during this migration: the existing image and volumes must
-remain visible to the selected connection.
-
-This configuration reuses the launcher's three named volumes as **external**
-volumes; it refuses to create empty replacements. It restores the permission hook
-inside the new container without Windows bind mounts, retains the catalog and
-credentials, disables image pulls/plugin downloads, and publishes on
-`127.0.0.1:8602` by default. The new regular bridge allows outbound routing through
-the Podman machine; the workstation/network air gap provides external isolation.
-It is a migration for successfully initialized volumes, not a first-install loader.
-
-Copy `compose.windows.yaml` into the extracted bundle beside its original `.env`.
-Leave the existing files and `SHA256SUMS` unchanged. In Windows PowerShell, run
-these preparation checks **before stopping the old container**:
-
-```powershell
-Set-Location 'D:\Maps\east-europe-bundle'  # Your extracted bundle directory
-function Invoke-CheckedPodman {
-    & podman @args
-    if ($LASTEXITCODE -ne 0) { throw 'Podman command failed; stop here.' }
-}
-Invoke-CheckedPodman compose version
-$env:BASEMAP_NAME = 'east-europe-bundle'  # Match the original -Name, if customized
-foreach ($suffix in @('catalog', 'fonts', 'cache')) {
-    Invoke-CheckedPodman volume exists "$env:BASEMAP_NAME-$suffix"
-}
-Invoke-CheckedPodman exec $env:BASEMAP_NAME test -s /opt/geoserver/data_dir/.offline-launcher-ready
-# Pin the replacement to the exact image already running; do not pull a tag.
-$env:GEOSERVER_IMAGE = (Invoke-CheckedPodman inspect --format '{{.Image}}' $env:BASEMAP_NAME).Trim()
-Invoke-CheckedPodman image exists $env:GEOSERVER_IMAGE
-# Rendered configuration includes the password, so suppress successful output.
-Invoke-CheckedPodman compose --env-file .env -f compose.windows.yaml config > $null
-```
-
-`podman compose` requires an already installed Compose provider. If the version or
-configuration check fails, retain the old deployment and resolve the missing
-offline prerequisite before proceeding. No tool installation is attempted here.
-
-Once these checks pass, stop and remove **only the old serving container**. The
-launcher did not create a Compose project, so `compose down` cannot remove it:
-
-```powershell
-Invoke-CheckedPodman stop $env:BASEMAP_NAME
-Invoke-CheckedPodman rm $env:BASEMAP_NAME
-Invoke-CheckedPodman compose --env-file .env -f compose.windows.yaml up -d
-```
-
-No `-v`, `volume rm`, or prune command is used. The old internal network can remain
-unused. After GeoServer finishes starting, test from **Windows**, not `podman exec`:
-
-```powershell
-curl.exe --noproxy "*" --max-time 15 -sS -D - -o NUL `
-  'http://127.0.0.1:8602/geoserver/ows?service=WMS&request=GetCapabilities'
-```
-
-Expect HTTP 200, then open
-`http://127.0.0.1:8602/geoserver/www/basemap/index.html`.
-Container health alone does not establish Windows/browser reachability. This
-Compose file is configuration-validated; live acceptance on the restricted
-workstation still requires that Windows-side request to succeed.
-
-Use Compose for subsequent lifecycle operations, from the same bundle directory:
-
-```powershell
-podman compose --env-file .env -f compose.windows.yaml down
-podman compose --env-file .env -f compose.windows.yaml up -d
-```
-
-External volumes survive `down`. Do not rerun the original PowerShell launcher
-against this Compose-managed deployment. If `-Name` was customized, set
-`BASEMAP_NAME` to that name in each new PowerShell session. The original bundle's
-image tag remains available locally after the launcher import; the first migration
-above additionally pins the exact running image through the process environment.
-Keep Compose output and logs private because providers may display credentials.
 
 ## Configuration and updates
 

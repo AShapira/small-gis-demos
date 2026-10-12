@@ -117,7 +117,10 @@ function Invoke-Podman {
     }
     elseif ($Arguments[0] -in @('volume', 'network') -and $Arguments[1] -eq 'create') {
         $object = @{ Labels = (Get-FakeLabels $Arguments) }
-        if ($Arguments[0] -eq 'network') { $object.internal = ($Arguments -contains '--internal') }
+        if ($Arguments[0] -eq 'network') {
+            $object.internal = ($Arguments -contains '--internal')
+            $object.driver = Get-FakeArg $Arguments '--driver'
+        }
         $script:Resources[$Arguments[0]][$Arguments[-1]] = $object
     }
     elseif ($Arguments[0] -eq 'create') {
@@ -186,7 +189,7 @@ try {
         Assert-True ($result.ExitCode -eq 23) 'Native exit code retained'
         Assert-Throws { & $originalNative -Arguments @('/d', '/c', "echo $script:FixtureSecret 1>&2 & exit /b 23") } 'exit 23'
     }
-    Test-Case 'Fresh deployment loads image, copies data, isolates network, restores environment' {
+    Test-Case 'Fresh deployment loads image, copies data, uses a regular bridge, restores environment' {
         Reset-FakePodman
         $prior = [Environment]::GetEnvironmentVariable('GEOSERVER_ADMIN_PASSWORD', 'Process')
         try {
@@ -202,6 +205,9 @@ try {
         Assert-True ($creates.Count -eq 2) 'Helper and service created'
         foreach ($create in $creates) { Assert-True ($create.Args -contains '--pull=never') 'No pulls allowed' }
         Assert-True ($creates[0].Args -contains 'none') 'Initialization network disabled'
+        $network = $script:Resources.network['east-europe-bundle-bridge']
+        Assert-True (-not $network.internal -and $network.driver -eq 'bridge') 'Serving network is a regular bridge'
+        Assert-True ($creates[1].Args -contains 'east-europe-bundle-bridge') 'Service attached to the regular bridge'
         Assert-True ($creates[1].Args -contains 'east-europe-bundle-fonts:/opt/fonts:ro') 'Fonts mounted read-only'
         Assert-True ($script:ConnectionArguments[1] -eq 'test-connection') 'Explicit connection selected without modifying default'
         Assert-True (@($script:Calls | Where-Object { $_.Args[0] -eq 'cp' -and $_.Args[1] -match '^\./(data_dir|fonts|cache)/\.$' }).Count -eq 3) 'Runtime copied with relative paths'
@@ -231,6 +237,28 @@ try {
         $script:Calls.Clear()
         Assert-Throws { Start-OfflineBundle -BundlePath $script:Fixture -Port 8604 } 'conflicts'
         Assert-True (@(Get-Calls 'create').Count -eq 0) 'No new container on conflict'
+    }
+    Test-Case 'Existing internal network rejected before changing any resources' {
+        $network = $script:Resources.network['east-europe-bundle-bridge']
+        $network.internal = $true
+        $script:Calls.Clear()
+        try { Assert-Throws { Start-OfflineBundle -BundlePath $script:Fixture } 'is internal' }
+        finally { $network.internal = $false }
+        Assert-True (@($script:Calls | Where-Object { $_.Args -contains 'create' -or $_.Args[0] -in @('start', 'cp', 'load', 'rm') }).Count -eq 0) 'Internal network refusal is read-only'
+    }
+    Test-Case 'Existing non-bridge network rejected' {
+        $network = $script:Resources.network['east-europe-bundle-bridge']
+        $network.driver = 'macvlan'
+        try { Assert-Throws { Start-OfflineBundle -BundlePath $script:Fixture } 'is not a bridge' }
+        finally { $network.driver = 'bridge' }
+    }
+    Test-Case 'Old launcher settings cannot silently reuse the prior deployment' {
+        $labels = $script:Resources.volume['east-europe-bundle-catalog'].Labels
+        $key = 'io.small-gis-demos.offline.settings'
+        $current = $labels[$key]
+        $labels[$key] = Get-TextHash ('windows-podman-v1|east-europe-bundle|127.0.0.1|8602|4G|sha256:' + ('a' * 64))
+        try { Assert-Throws { Start-OfflineBundle -BundlePath $script:Fixture } 'conflicts' }
+        finally { $labels[$key] = $current }
     }
     Test-Case 'Partial volumes refuse automatic recovery' {
         $script:Resources.volume.Remove('east-europe-bundle-cache')
