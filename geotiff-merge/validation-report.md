@@ -1,5 +1,30 @@
 # GeoTIFF merge validation — 2026-09-30
 
+## Optional pixel-size update — 2026-10-13
+
+The complete generated-data suite passed **91 tests** in the installed QGIS 4.2
+Windows Python **3.12.13 / GDAL 3.13.1** (20.846 seconds). This includes all
+75 existing regression tests and 16 new resampling tests.
+
+New checks cover hand-calculated 4 m → 10 m fractional-area averages across
+input boundaries, integer rounding, partial edge cells, masks and per-band
+gaps, overlap selection before averaging, scalar/tuple NoData collisions,
+safe NoData suggestions, nearest sample bits including valid NaN and signed
+zero, decimal grid dimensions and ratios, window/split consistency, COG
+validation, asynchronous CLI forwarding, cancellation, and rejection of
+corrupted pixels, masks and georeferencing. Floating-point verification uses
+an input-magnitude rounding bound to accommodate cancellation near zero.
+
+Evidence is retained in the ignored local directory
+`.validation/geotiff-resampling/`, including `full-suite.log` and the test
+launcher. `git diff --check` and Python 3.8 syntax parsing also passed.
+
+This validates generated rasters and the bundled-Python worker; the QGIS
+desktop console UI and production-size resampling were not exercised. Earlier
+real-data measurements below describe the unchanged-grid path and are not
+resampling performance measurements.
+
+
 ## Opt-in COG update
 
 COG output defaults to false. The updated script passed **75 generated-data

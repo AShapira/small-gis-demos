@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""QGIS 4.2 / GDAL merge: one mosaic or optional target size, full verification.
+"""QGIS 4.2 / GDAL merge: optional pixel size and file size, full verification.
 
 QGIS console: import runpy; merger = runpy.run_path('/path/merge_geotiffs.py')
 job = merger['start']('/input', '/new-output', target_size='25GB')
@@ -393,6 +393,11 @@ def output_signature(template):
 
 
 def valid_value_blocks(sources, template, edge):
+    # Suggestions must remain safe after averaging as well as in every source.
+    if 'resample' in template:
+        yield from valid_value_blocks(sources, template['resample']['source_template'], edge)
+        yield from derived_blocks(sources, template, edge, template['resample']['policy'])
+        return
     # An explicit scalar output value can represent independent per-band masks.
     scan_template = dict(template, output_nodata=0)
     readers = Readers(limit=4)
@@ -490,7 +495,7 @@ def nodata_analysis(sources, template, resources, requested=None, suggest=False)
     def scan(source):
         occupied = [False] * len(candidates)
         valid_count = invalid_count = 0
-        for values, valid in valid_value_blocks([source], template, resources['block_size']):
+        for values, valid in valid_value_blocks(source if isinstance(source, list) else [source], template, resources['block_size']):
             data = values[valid]
             valid_count += int(data.size)
             invalid_count += int(valid.size - data.size)
@@ -502,7 +507,7 @@ def nodata_analysis(sources, template, resources, requested=None, suggest=False)
     occupied = [False] * len(candidates)
     valid_count = invalid_count = 0
     with ThreadPoolExecutor(max_workers=resources['workers']) as executor:
-        for seen, valid, invalid in executor.map(scan, sources):
+        for seen, valid, invalid in executor.map(scan, [sources] if 'resample' in template else sources):
             occupied = [a or b for a, b in zip(occupied, seen)]
             valid_count += valid
             invalid_count += invalid
@@ -516,7 +521,11 @@ def nodata_analysis(sources, template, resources, requested=None, suggest=False)
                   suggestions=suggestions, suggestion_search_complete=suggest,
                   requested=nodata_text(requested) if requested is not None else None,
                   requested_is_safe=not occupied[0] if requested is not None else None,
-                  scope='All valid source samples across all bands, including overlap losers; gaps are not source samples')
+                  scope=('All valid source and resampled output samples' if 'resample' in template else
+                         'All valid source samples across all bands, including overlap losers; gaps are not source samples'))
+    if 'resample' in template:
+        result['valid_source_and_output_band_samples'] = result.pop('valid_source_band_samples')
+        result['invalid_source_and_output_band_samples'] = result.pop('invalid_source_band_samples')
     if suggest:
         result['replacement_possible'] = bool(suggestions)
         if suggestions:
@@ -759,6 +768,235 @@ def compressed_sample_size(values, settings):
         gdal.Unlink(path)
 
 
+def pixel_size(value):
+    try:
+        value = float(value)
+    except (ValueError, TypeError):
+        raise argparse.ArgumentTypeError('Pixel size must be a finite positive number') from None
+    if not math.isfinite(value) or value <= 0:
+        raise argparse.ArgumentTypeError('Pixel size must be a finite positive number')
+    return value
+
+
+def snap_grid_number(value):
+    """Remove a few ULPs of division noise at integral grid boundaries."""
+    nearest = round(value)
+    return float(nearest) if abs(value - nearest) <= 4 * np.finfo(float).eps * max(1, abs(value)) else value
+
+
+def output_grid(sources, template, size, method):
+    """Keep source coordinates separate from the new, upper-left anchored grid."""
+    ref = template['transform']
+    if size < max(ref.a, -ref.e):
+        raise MergeError('--pixel-size must be at least both source pixel dimensions; upsampling is not supported')
+    extent = bounds([s.rect for s in sources])
+    x, y = ref * (extent.x, extent.y)
+    result = dict(template, transform=Grid(x, size, 0, y, 0, -size))
+    if not all(math.isfinite(size / v) for v in (ref.a, -ref.e)):
+        raise MergeError('Pixel-size ratio is too large to represent')
+    result['resample'] = dict(source_template=dict(template), extent=extent,
+                              rx=snap_grid_number(size / ref.a), ry=snap_grid_number(size / -ref.e), method=method)
+    return result
+
+
+def output_footprints(sources, template):
+    if 'resample' not in template:
+        return sources
+    config = template['resample']
+    extent, rx, ry = config['extent'], config['rx'], config['ry']
+    footprints = []
+    for source in sources:
+        r = source.rect
+        x, y = math.floor(snap_grid_number((r.x - extent.x) / rx)), math.floor(snap_grid_number((r.y - extent.y) / ry))
+        right = math.ceil(snap_grid_number((r.x + r.w - extent.x) / rx))
+        bottom = math.ceil(snap_grid_number((r.y + r.h - extent.y) / ry))
+        footprints.append(Source(source.path, Rect(x, y, right - x, bottom - y), source.files))
+    return footprints
+
+
+def compose_source(part, sources, template, readers, policy):
+    """Resolve source priority before any spatial averaging."""
+    values = np.zeros((template['count'], part.h, part.w), dtype=template['dtype'])
+    valid = np.zeros(values.shape, dtype=bool)
+    for src in sources:
+        hit = part.intersection(src.rect)
+        if hit is None:
+            continue
+        data, mask = read(src, hit, readers, template)
+        section = slices(hit, part)
+        take = mask if policy == 'last' else mask & ~valid[section]
+        np.copyto(values[section], data, where=take)
+        valid[section] |= mask
+    return values, valid
+
+
+def resample_block(part, sources, template, readers, policy, reference=False, with_error=False):
+    """Bounded source tiles; accumulation never allocates a full fine-grid window.
+
+    The writer scatters each source pixel to at most four destination pixels.
+    Verification instead integrates rows using independently computed axis weights.
+    """
+    cfg = template['resample']
+    source_template = cfg['source_template']
+    origin, rx, ry = cfg['extent'], cfg['rx'], cfg['ry']
+    left, top = origin.x + part.x * rx, origin.y + part.y * ry
+    right, bottom = origin.x + (part.x + part.w) * rx, origin.y + (part.y + part.h) * ry
+    window = Rect(math.floor(left), math.floor(top), math.ceil(right) - math.floor(left),
+                  math.ceil(bottom) - math.floor(top)).intersection(origin)
+    shape = (template['count'], part.h, part.w)
+    data = np.zeros(shape, dtype=template['dtype'])
+    valid = np.zeros(shape, dtype=bool)
+    if window is None:
+        return (data, valid, np.zeros(shape)) if with_error else (data, valid)
+    if cfg['method'] == 'nearest':
+        # Read only selected centers, grouped into bounded source windows.
+        xs = np.floor(np.minimum(origin.x + (np.arange(part.x, part.x + part.w) + .5) * rx,
+                                 origin.x + origin.w)).astype(np.int64)
+        ys = np.floor(np.minimum(origin.y + (np.arange(part.y, part.y + part.h) + .5) * ry,
+                                 origin.y + origin.h)).astype(np.int64)
+        for by in np.unique(ys // 128):
+            yi = np.flatnonzero(ys // 128 == by)
+            for bx in np.unique(xs // 128):
+                xi = np.flatnonzero(xs // 128 == bx)
+                tile = Rect(int(bx * 128), int(by * 128), 128, 128).intersection(origin)
+                if tile is None:
+                    continue
+                check_cancel()
+                values, masks = compose_source(tile, sources, source_template, readers, policy)
+                ix, iy = xs[xi] - tile.x, ys[yi] - tile.y
+                goodx, goody = (ix >= 0) & (ix < tile.w), (iy >= 0) & (iy < tile.h)
+                xi, yi, ix, iy = xi[goodx], yi[goody], ix[goodx], iy[goody]
+                data[:, yi[:, None], xi] = values[:, iy[:, None], ix]
+                valid[:, yi[:, None], xi] = masks[:, iy[:, None], ix]
+        return (data, valid, np.zeros(shape)) if with_error else (data, valid)
+    absolute_sums = np.zeros(shape, dtype=np.longdouble) if with_error else None
+    sums, weights = np.zeros(shape, dtype=np.longdouble), np.zeros(shape, dtype=np.longdouble)
+    for tile in blocks(window, 128):
+        if not any(tile.intersection(src.rect) for src in sources):
+            continue
+        values, masks = compose_source(tile, sources, source_template, readers, policy)
+        if np.any(masks & ~np.isfinite(values)):
+            raise MergeError('average resampling requires finite valid samples; use nearest for valid NaN or infinity')
+        values = np.where(masks, values, 0).astype(np.longdouble)
+        sx, sy = np.arange(tile.x, tile.x + tile.w), np.arange(tile.y, tile.y + tile.h)
+        if reference:
+            # Independent gather/integration kernel: no scatter indices or writer sums.
+            dx = origin.x + np.arange(part.x, part.x + part.w) * rx
+            dx_right = origin.x + np.arange(part.x + 1, part.x + part.w + 1) * rx
+            dy = origin.y + np.arange(part.y, part.y + part.h) * ry
+            dy_bottom = origin.y + np.arange(part.y + 1, part.y + part.h + 1) * ry
+            wx = np.maximum(0, np.minimum(dx_right[:, None], sx + 1) - np.maximum(dx[:, None], sx))
+            wy = np.maximum(0, np.minimum(dy_bottom[:, None], sy + 1) - np.maximum(dy[:, None], sy))
+            for band in range(shape[0]):
+                sums[band] += (wy.astype(np.longdouble) @ values[band]) @ wx.T
+                weights[band] += (wy.astype(np.longdouble) @ masks[band]) @ wx.T
+                if with_error:
+                    absolute_sums[band] += (wy.astype(np.longdouble) @ np.abs(values[band])) @ wx.T
+        else:
+            # A source cell can intersect at most two output cells per axis.
+            ix0 = np.floor((sx - origin.x) / rx).astype(np.int64)
+            iy0 = np.floor((sy - origin.y) / ry).astype(np.int64)
+            for iy in (iy0, iy0 + 1):
+                wy = np.maximum(0, np.minimum(sy + 1, origin.y + (iy + 1) * ry) -
+                                np.maximum(sy, origin.y + iy * ry))
+                for ix in (ix0, ix0 + 1):
+                    wx = np.maximum(0, np.minimum(sx + 1, origin.x + (ix + 1) * rx) -
+                                    np.maximum(sx, origin.x + ix * rx))
+                    inside = ((iy[:, None] >= part.y) & (iy[:, None] < part.y + part.h) &
+                              (ix >= part.x) & (ix < part.x + part.w))
+                    area = wy[:, None] * wx
+                    inside &= area > 0
+                    indices = ((iy[:, None] - part.y) * part.w + ix - part.x)[inside]
+                    for band in range(shape[0]):
+                        w = area[inside] * masks[band][inside]
+                        np.add.at(sums[band].ravel(), indices, values[band][inside] * w)
+                        np.add.at(weights[band].ravel(), indices, w)
+    valid = weights > 0
+    means = np.divide(sums, weights, out=np.zeros_like(sums), where=valid)
+    if np.any(valid & ~np.isfinite(means)):
+        raise MergeError('Average accumulation overflow; output cannot be represented safely')
+    dtype = np.dtype(template['dtype'])
+    if dtype.kind in 'ui':
+        means = np.copysign(np.floor(np.abs(means) + .5), means)
+        limits = np.iinfo(dtype)
+        means = np.clip(means, limits.min, limits.max)
+    data[:] = means.astype(dtype)
+    if with_error:
+        # Account for cancellation: relative-to-result tolerance alone is invalid
+        # near zero. Bound weighted-sum roundoff using the mean absolute input.
+        terms = min(window.area, (math.ceil(rx) + 1) * (math.ceil(ry) + 1))
+        eps = np.finfo(np.longdouble).eps
+        if terms * eps >= .01:
+            raise MergeError('Too many contributions for reliable average verification')
+        gamma = terms * eps / (1 - terms * eps)
+        absolute_mean = np.divide(absolute_sums, weights, out=np.zeros_like(sums), where=valid)
+        error = (8 * np.finfo(dtype).eps + 4 * gamma) * absolute_mean if dtype.kind == 'f' else np.zeros(shape)
+        return data, valid, error
+    return data, valid
+
+
+def derived_blocks(sources, template, edge, policy, reference=False):
+    readers = Readers(limit=4)
+    try:
+        with worker_options():
+            footprints = output_footprints(sources, template)
+            # Partition the occupied footprint union once; avoid distant empty extents.
+            for region in plan(bounds([s.rect for s in footprints]), footprints, max(1, min(edge, 64)**2)):
+                for part in blocks(region, min(edge, 64)):
+                    yield resample_block(part, sources, template, readers, policy, reference)
+    finally:
+        readers.close()
+
+
+def prepare_derived(data, valid, template):
+    output = output_signature(template)
+    nd = output['nodata']
+    if nd is not None:
+        if np.any(valid & matches_nodata(data, nd)):
+            raise MergeError('Resampled valid values collide with output NoData; choose another --output-nodata value')
+        data[~valid] = nd
+    else:
+        if not np.all(valid == valid[0]):
+            raise MergeError('Resampled band masks differ; choose a safe --output-nodata value')
+        data[~valid] = 0
+        if output['nodata_tuple']:
+            sentinel = np.array([float(v) for v in output['nodata_tuple'].split()], dtype=data.dtype)
+            if np.any(valid[0] & np.all(data == sentinel[:, None, None], axis=0)):
+                raise MergeError('Resampled valid values collide with tuple NoData; choose --output-nodata')
+            for band, value in enumerate(sentinel):
+                data[band][~valid[band]] = value
+    return data
+
+
+def verify_resampled(path, region, sources, template, readers, edge, policy):
+    checked = 0
+    with opened(path) as dst:
+        check_compression(dst, template['compression_settings'])
+        if (dst.RasterXSize != region.w or dst.RasterYSize != region.h or
+                not same_crs(dst.GetProjection(), template['crs']) or
+                Grid(*dst.GetGeoTransform()) != template['transform'].shifted(region.x, region.y) or
+                not compatible(signature(dst), {k: output_signature(template)[k] for k in signature(dst)})):
+            raise MergeError('Verification failed: resampled georeferencing or metadata')
+        if 'output_nodata' in template and any(dst.GetRasterBand(i).GetMaskFlags() != gdal.GMF_NODATA
+                                               for i in range(1, dst.RasterCount + 1)):
+            raise MergeError('Verification failed: expected scalar NoData without a stored mask')
+        for part in blocks(region, min(edge, 64)):
+            expected, valid, error = resample_block(part, sources, template, readers, policy, reference=True, with_error=True)
+            prepare_derived(expected, valid, template)
+            actual, masks = read_values(dst, part, region), read_masks(dst, part, region)
+            if not np.array_equal(valid, masks):
+                raise MergeError('Verification failed: resampled validity mask')
+            if template['resample']['method'] == 'average' and actual.dtype.kind == 'f':
+                equal = np.abs(actual.astype(np.longdouble) - expected.astype(np.longdouble)) <= error
+            else:
+                equal = bit_equal(actual, expected)
+            if not np.all(equal[valid]):
+                raise MergeError('Verification failed: resampled pixels differ')
+            checked += int(valid.sum())
+            advance_work('Merging and verifying', part.area)
+    return dict(checked_output_band_samples=checked, verification='resampled from original inputs')
+
+
 def create_candidate(path, region, sources, template, readers, edge, policy, compression):
     output = output_signature(template)
     nd = output["nodata"]
@@ -788,7 +1026,16 @@ def create_candidate(path, region, sources, template, readers, edge, policy, com
             b.SetColorInterpretation(template['colorinterp'][i])
         if nd is None:
             dst.CreateMaskBand(gdal.GMF_PER_DATASET)
-        for part in blocks(region, edge):
+        for part in blocks(region, min(edge, 64) if 'resample' in template else edge):
+            if 'resample' in template:
+                data, valid = resample_block(part, sources, template, readers, policy)
+                data = prepare_derived(data, valid, template)
+                dst.WriteArray(data, xoff=part.x - region.x, yoff=part.y - region.y)
+                if nd is None:
+                    dst.GetRasterBand(1).GetMaskBand().WriteArray(valid[0].astype('uint8') * 255,
+                            xoff=part.x - region.x, yoff=part.y - region.y)
+                advance_work('Merging and verifying', part.area)
+                continue
             shape = (template["count"], part.h, part.w)
             data = np.full(shape, fill, dtype=template["dtype"])
             if output['nodata_tuple']:
@@ -820,6 +1067,8 @@ def verify_output(path, region, sources, template, readers, edge, policy):
     sources in winning order and check the first valid sample at each location.
     All remaining masks are checked against the source-validity union.
     """
+    if 'resample' in template:
+        return verify_resampled(path, region, sources, template, readers, edge, policy)
     checked = discarded = 0
     with opened(path) as dst:
         if 'compression_settings' in template:
@@ -919,7 +1168,9 @@ def resource_plan(args, template, sources, jobs):
     # TIFF codecs, Python/native runtime, and allocator overhead.
     codec_reserve = codec_memory_bytes(compression_settings(args, template['dtype']))
     def worker_bytes(n):
-        return 64 * 1024 ** 2 + decode_reserve + codec_reserve + (64 * 1024**2 if args.cog else 0) + n * n * count * (itemsize * 10 + 24)
+        return (64 * 1024 ** 2 + decode_reserve + codec_reserve +
+                (64 * 1024**2 if args.cog else 0) + n * n * count * (itemsize * 10 + 24) +
+                (128 * 128 * count * (itemsize * 4 + 128) if 'resample' in template else 0))
     usable = budget - cache - 128 * 1024 ** 2
     while worker_bytes(edge) > usable and edge > 64:
         edge //= 2
@@ -959,6 +1210,8 @@ def estimate_density(sources, template, compression, workers):
     """Sample actual TIFFs using the chosen lossless codec, level and predictor."""
     output = output_signature(template)
     raw = template['count'] * np.dtype(template['dtype']).itemsize
+    if 'resample' in template:
+        return raw + 1  # Conservative planning; final compressed size still decides splitting.
     if compression == 'none':
         return raw
     def sample(src):
@@ -1067,9 +1320,14 @@ def _run(args, progress):
             check_cancel()
             progress.phase_start('Inspecting inputs', 0, .05)
             sources, template = inventory(source_dir)
+            if args.pixel_size is not None:
+                template = output_grid(sources, template, args.pixel_size, args.resampling)
+                template['resample']['policy'] = args.overlap
             if args.output_nodata is not None:
                 template['output_nodata'] = parse_output_nodata(args.output_nodata, template['dtype'])
                 report['output_nodata'] = nodata_text(template['output_nodata'])
+                if 'resample' in template:
+                    template['resample']['source_template']['output_nodata'] = template['output_nodata']
             settings = compression_settings(args, template['dtype'])
             template['compression_settings'] = settings
             report['compression_settings'] = settings
@@ -1083,8 +1341,21 @@ def _run(args, progress):
             write_report(output_dir, report)
             report["input_order"] = [s.path.name for s in sources]
             report["crs"] = template["crs"]
-            report["reference_transform"] = list(template["transform"])[:6]
-            report["sample_comparison"] = "bitwise equality of every required valid band sample; exhaustive validity masks"
+            report["reference_transform"] = list(template.get('resample', {}).get('source_template', template)['transform'])
+            footprints = output_footprints(sources, template)
+            if 'resample' in template:
+                cfg = template['resample']
+                ref = cfg['source_template']['transform']
+                extent = bounds([s.rect for s in footprints])
+                report['resampling'] = dict(method=args.resampling, source_pixel_size=[ref.a, -ref.e],
+                    output_pixel_size=[args.pixel_size, args.pixel_size], units='CRS units',
+                    output_transform=list(template['transform']), width=extent.w, height=extent.h)
+                report['output_transform'] = list(template['transform'])
+            report["sample_comparison"] = (
+                'Exhaustive resampled output and validity comparison against original inputs; '
+                'integer/nearest values exact; floating average tolerance uses weighted absolute inputs and accumulation roundoff'
+                if 'resample' in template else
+                'bitwise equality of every required valid band sample; exhaustive validity masks')
             fingerprints = {}
             log(f"Hashing {len(sources)} inputs and their GDAL-reported dependencies")
             files = sorted({p for src in sources for p in src.files})
@@ -1112,7 +1383,7 @@ def _run(args, progress):
                 local = Readers(limit=2)
                 try:
                     with worker_options():
-                        return overlap_scan(list(pair), template, local, resources['block_size'])[0]
+                        return overlap_scan(list(pair), template.get('resample', {}).get('source_template', template), local, resources['block_size'])[0]
                 finally:
                     local.close()
             with ThreadPoolExecutor(max_workers=resources['workers']) as executor:
@@ -1122,12 +1393,12 @@ def _run(args, progress):
                 report["overlap_advice"] = [
                     "Keep the originals as separate layers to retain all conflicting observations.",
                     "If one source is authoritative, rerun with --overlap first or last after reviewing input_order.",
-                    "First/last discard competing values; averaging/blending changes data and is not offered."]
+                    "First/last discard competing observations; optional pixel-size resampling runs after source selection."]
                 if args.overlap == "error":
                     raise MergeError("Conflicting valid overlap pixels: review report.json; choose source priority or keep separate layers")
             if not args.analyze_only:
                 progress.phase_start('Planning outputs', .35, .05)
-                extent = bounds([s.rect for s in sources])
+                extent = bounds([s.rect for s in footprints])
                 if args.max_size is None:
                     regions = [extent]
                 else:
@@ -1137,7 +1408,7 @@ def _run(args, progress):
                         bpp *= 4 / 3  # Approximate pyramid overhead; final COG sizes decide acceptance.
                     report['estimated_bytes_per_pixel'] = bpp
                     target = max(1, int(max(1, args.max_size - 4096) / bpp))
-                    regions = list(plan(extent, sources, target))
+                    regions = list(plan(extent, footprints, target))
                 resources = resource_plan(args, template, sources, len(regions))
                 report['resources'] = resources
                 log(f"Resources: {resources['workers']} file workers + shared pool of "
@@ -1154,7 +1425,7 @@ def _run(args, progress):
                     name = f'{args.base_name}-{i:05d}.tif'
                     (staging / output['name']).rename(staging / name)
                     output['name'] = name
-                ensure_coverage(sources, report["outputs"])
+                ensure_coverage(footprints, report["outputs"])
             readers.close()
             log("Rehashing inputs to verify they remained unchanged")
             progress.phase_start('Rehashing inputs', .9, .1, sum(v['bytes'] for v in fingerprints.values()))
@@ -1167,7 +1438,7 @@ def _run(args, progress):
                     if path.stat().st_size != before["bytes"] or digest != before["sha256"]:
                         raise MergeError(f"Input changed during the run: {path}")
             report["inputs_unchanged"] = True
-            report["all_source_valid_values_preserved"] = None if args.analyze_only else not conflicts
+            report["all_source_valid_values_preserved"] = None if args.analyze_only else not conflicts and 'resample' not in template
             if args.analyze_only:
                 report["status"] = "analyzed"
             else:
@@ -1195,6 +1466,10 @@ def parser():
     result.add_argument("output", type=Path, help="New, separate output directory; must not exist")
     result.add_argument("--target-size", "--max-size", dest="max_size", type=size_bytes,
                         help="Optional target TIFF size (+10%% allowed); omit to produce one TIFF")
+    result.add_argument('--pixel-size', type=pixel_size,
+                        help='Optional square output pixel size in CRS units; coarsening only')
+    result.add_argument('--resampling', choices=('average', 'nearest'), default='average',
+                        help='Pixel-size resampling method (default average); ignored without --pixel-size')
     result.add_argument("--base-name", default="mosaic", type=output_base_name,
                         help="Output filename stem; default mosaic produces mosaic-00001.tif, etc.")
     result.add_argument("--cpus", type=int, help="Maximum worker/codec CPU concurrency; default all available CPUs")
@@ -1279,7 +1554,8 @@ class Job:
 def start(input_dir, output_dir, *, target_size=None, base_name='mosaic', cpus=None, ram=None,
           overlap='error', compression='deflate', analyze_only=False, block_size=None,
           cache_mib=None, suggest_nodata=False, output_nodata=None, compression_level=None,
-          predictor=1, cog=False, cog_overviews='nearest', python_executable=None):
+          predictor=1, cog=False, cog_overviews='nearest', pixel_size=None, resampling='average',
+          python_executable=None):
     """Run from QGIS 4.2 console without blocking its Qt event loop.
 
     Uses QGIS's own Python in a separate process, so its GDAL cache and CPU
@@ -1300,6 +1576,9 @@ def start(input_dir, output_dir, *, target_size=None, base_name='mosaic', cpus=N
                '--base-name', base_name, '--overlap', overlap, '--compression', compression,
                '--predictor', str(predictor),
                '--cancel-file', str(cancel_file)]
+    if pixel_size is not None:
+        command += ['--pixel-size', str(pixel_size)]
+    command += ['--resampling', resampling]
     if cog:
         command += ['--cog']
     command += ['--cog-overviews', cog_overviews]

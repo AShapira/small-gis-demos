@@ -75,6 +75,67 @@ The numeric suffix is retained even when there is only one file.
 Treat a run as successful only when the process exits zero and the report says
 `"status": "complete"`. An analysis run has status `analyzed` and no TIFFs.
 
+## Optional output pixel size
+
+Use `--pixel-size 10` / `pixel_size=10` to merge and resample onto a grid
+with 10 × 10 coordinate-unit pixels. For a CRS measured in meters, this converts
+4 m input pixels to 10 m output pixels. Larger pixels mean lower spatial
+resolution. The CRS stays unchanged: geographic coordinates use degrees,
+not meters. Inputs must still share the same aligned, north-up source grid.
+
+```bash
+python geotiff-merge/merge_geotiffs.py /data/input /data/merged-10m \
+  --pixel-size 10 --resampling average
+```
+
+```python
+job = merger["start"](r"D:\rasters", r"D:\merged-10m",
+                      pixel_size=10, resampling="average")
+```
+
+Pixel size must be finite, positive, and at least both source pixel dimensions;
+upsampling is rejected. Omit it to retain the original grid and exact sample
+preservation. `resampling` is ignored when pixel size is omitted.
+
+- `average` (default): area-weighted average of valid source pixels, including
+  fractional contributions for ratios such as 4→10. Invalid samples contribute
+  neither values nor weight. A pixel without valid contributions stays invalid.
+- `nearest`: select the source cell containing the output pixel center. A masked
+  center or a center outside source coverage stays invalid. Use this for classes,
+  labels, or when retaining selected source sample bits matters.
+
+Overlap conflicts are checked first on the original grid. Source priority is
+resolved before resampling, so a new pixel crossing an input-file boundary
+uses one consistent mosaic. The grid starts at the mosaic's upper-left corner;
+width and height round up to cover the whole extent. Average edge pixels use
+only available coverage. Split outputs share this grid without seam shifts.
+
+The output retains the input dtype, band scales, offsets, units and descriptions.
+Integer averages round to the nearest integer, with ties away from zero;
+floating averages retain the source precision. Average requires finite valid
+values; use nearest for valid NaN or infinity. Averaging changes values even
+though the TIFF compression remains lossless.
+
+Derived values are checked for scalar or tuple NoData collisions before
+publication. A collision fails the run; choose a safe `--output-nodata` value.
+With pixel size enabled, `--suggest-nodata` scans original **and derived** values,
+including during a dry run, so it can take longer than an ordinary analysis.
+A dry run otherwise reports the planned output grid without producing TIFFs.
+
+Verification reopens every output and recomputes values and validity from the
+original inputs. Integer averages and nearest samples are compared exactly;
+floating averages use a rounding-error bound based on the weighted mean absolute
+input, dtype precision and number of contributions. This accounts for
+cancellation near zero and independent accumulation order. The report records the
+resampling method, source/output pixel sizes, output grid, and checked output
+sample counts. Completed resampled runs set
+`all_source_valid_values_preserved` to false; original files and their dependencies are still hashed before and after the run.
+
+File-size targets, resource limits, cancellation, and COG output also work with
+pixel-size resampling. Size planning uses a conservative uncompressed estimate;
+finished file sizes still determine retries. COG overviews are generated from
+the resampled base image and retain their separate `cog_overviews` setting.
+
 ## Optional Cloud Optimized GeoTIFF (COG)
 
 COG output is **off by default** (`cog=False`). Enable it to create tiled
@@ -112,15 +173,16 @@ Overviews are generated at powers of two until the largest dimension fits a
 256-pixel tile. Small outputs may need none. They use the same lossless codec
 and predictor as the full-resolution image. Existing source overviews are not
 copied. Overview resampling **never resamples the full-resolution mosaic**:
-all required valid base samples remain bit-identical to the sources, with the
-same grid, band count and validity. Generated overview values are derived
-products, outside the source-sample equality guarantee. No physical alpha band
+when `pixel_size` is omitted, all required valid base samples remain bit-identical
+to the sources, with the same grid, band count and validity. With `pixel_size`,
+the base image instead follows the resampling and verification rules above.
+Generated overview values are derived products, outside the source-sample equality guarantee. No physical alpha band
 is added; missing data keeps its existing scalar NoData/internal mask behavior,
 including the `--output-nodata` option.
 
 Each candidate is written as a staging TIFF, converted with GDAL's COG driver,
 then reopened read-only. The finished COG is checked against the original inputs
-and with `osgeo_utils.samples.validate_cloud_optimized_geotiff` using
+using the selected base-image verification mode and with `osgeo_utils.samples.validate_cloud_optimized_geotiff` using
 `full_check=True`, including tile ordering and block structure. A layout marker
 alone is insufficient. Failures prevent publication; per-file validation results,
 overview counts and warnings are recorded in `report.json`. The COG validator is
@@ -153,6 +215,8 @@ The API column refers to keyword arguments of `merger["start"](...)`.
 | `input` | `input_dir` (positional) | Required | Existing flat input directory. Reads `.tif` / `.tiff`, case-insensitively, without recursion. |
 | `output` | `output_dir` (positional) | Required | New output directory, separate from and not nested in the input directory (or vice versa). Must not already exist. |
 | `--target-size SIZE`, alias `--max-size SIZE` | `target_size` | Omitted / `None` | Omit to merge all inputs into one file with no byte-size cap. Otherwise use a positive size such as `25GB` or `25GiB`; each finished TIFF may be up to 10% larger. Does not set an exact file count. |
+| `--pixel-size SIZE` | `pixel_size` | Omitted / `None` | Square output pixel size in current CRS units. Must be finite, positive and no smaller than either source pixel dimension. Omit to retain the source grid. |
+| `--resampling average\|nearest` | `resampling` | `"average"` | Base-image resampling when pixel size is supplied: area-weighted average or nearest source cell at each output center. Ignored otherwise; independent of COG overview resampling. |
 | `--base-name NAME` | `base_name` | `"mosaic"` | Filename stem, without the `.tif` extension. Outputs use `NAME-00001.tif`, `NAME-00002.tif`, etc. Spaces and Unicode are allowed; paths, Windows-reserved names/characters, empty names, and trailing dots/spaces are rejected. Quote names containing spaces in the shell. Does not rename `report.json`. |
 | `--cpus N` | `cpus` | Available logical CPUs | Positive integer ceiling on worker/codec concurrency and child CPU affinity; never exceeds available CPUs. |
 | `--ram SIZE` | `ram` | 80% of available RAM | Working-memory planning budget, e.g. `8GiB`, capped by available-memory allowance. At least 256 MiB is required. Not an OS-enforced memory ceiling. |
@@ -207,8 +271,8 @@ running Qt application, inspect the job log named by `job.status()["log"]`.
 Use `--compression CODEC` in the shell, or `compression="CODEC"` in `start()`.
 Names are case-insensitive. **All available choices in this script** are
 `deflate`, `lzw`, `zstd`, `lzma`, `packbits`, and `none`. No choice enables lossy
-encoding. Valid sample bits, masks/NoData semantics and supported metadata still
-undergo the same exhaustive verification.
+encoding. Outputs undergo exhaustive verification using the unchanged-grid or
+resampled-image contract selected by `pixel_size`.
 
 ```bash
 # ZSTD level 3 with integer horizontal prediction: the benchmark's faster ZSTD profile.
@@ -334,7 +398,9 @@ sources in overlapping areas. The console lists safe choices and a suggested
 - `replacement_possible`: whether at least one common unused value was found.
 - `dtype`, valid/invalid source band-sample counts, and, when a value was supplied,
   `requested` and `requested_is_safe`. Counts include repeated overlap samples;
-  they do not count gaps outside source footprints.
+  they do not count gaps outside source footprints. With pixel-size resampling,
+  the counts instead use `valid_source_and_output_band_samples` and
+  `invalid_source_and_output_band_samples`, and include the derived footprint.
 
 For example, **only if `65535` was suggested for your inputs**, run:
 
@@ -355,7 +421,8 @@ job = merger["start"](r"D:\rasters", r"D:\merged-nodata",
                       output_nodata=choices[0])
 ```
 
-The merge **rescans for collisions**, so a suggestion from an older dry run
+The merge **rescans for collisions**, including derived samples when pixel size
+is set, so a suggestion from an older dry run
 cannot silently invalidate changed inputs. A collision stops the run before any
 output TIFF is written, even if `--overlap first/last` would discard that source's
 value. An out-of-range value, fractional integer NoData, or a floating-point value
@@ -363,7 +430,8 @@ requiring narrowing/rounding is rejected. Use the exact suggested string;
 `--output-nodata=-9999` with `=` also handles negative/scientific notation safely.
 
 Only invalid pixels and uncovered output areas are filled with the chosen value.
-Valid sample bits and the data type remain unchanged. The output uses scalar
+Without pixel-size resampling, valid sample bits and the data type remain
+unchanged. The output uses scalar
 NoData metadata and **no stored internal mask or alpha band**. GDAL can still
 provide an implicit validity mask derived from NoData; that is not an extra stored
 band. Verification checks the new NoData metadata, absence of a stored mask,
@@ -390,13 +458,14 @@ unless `--output-nodata` is supplied.
 
 ## What “data unchanged” means
 
-The default policy preserves every **valid, decoded source band sample** at
-its original pixel location. It uses the selected lossless codec (DEFLATE by
+With pixel size omitted, the default policy preserves every **valid, decoded
+source band sample** at its original pixel location. It uses the selected lossless codec (DEFLATE by
 default), no reprojection,
 resampling, blending, arithmetic, or dtype conversion. `--compression none`
 disables compression. Output files are BigTIFFs with 256 × 256 pixel tiles.
 
-Verification is mandatory and exhaustive, with no numerical tolerance:
+Verification is mandatory and exhaustive. For the default unchanged-grid path,
+there is no numerical tolerance:
 
 1. SHA-256 hashes record every input and dependency reported by GDAL, including
    external masks or auxiliary metadata. They are checked again after writing.
@@ -454,11 +523,12 @@ python geotiff-merge/merge_geotiffs.py /data/input /data/merged-last \
 
 The exact order appears as `input_order` in the report. Priority applies per
 band, with nodata fallback. These options **discard conflicting observations**;
-the report sets `all_source_valid_values_preserved` to false and counts discarded
-source samples. Verification then proves that every selected value is unchanged
-and the output implements the chosen priority, not that all original values
-survived. Averaging and blending are deliberately unavailable because they create
-new pixel values. Analysis alone never asserts output preservation.
+the report sets `all_source_valid_values_preserved` to false. Without pixel-size
+resampling it also counts discarded source samples and verifies that every
+selected value is unchanged. With pixel-size resampling, the selected mosaic is
+then resampled and verification checks the derived output instead. Overlap
+policies select observations; they do not blend competing sources. Analysis
+alone never asserts output preservation.
 
 ## File count and size planning
 
@@ -566,7 +636,10 @@ The generated-data suite checks spatial reconstruction, holes, nodata fallback,
 valid zeroes, per-band masks, identical/conflicting overlaps, both priority
 policies, float bits, internal/external masks, band metadata, actual-size splitting,
 oversized-candidate retries, incompatible grids, small caps, distant footprints,
-input changes, and deliberately corrupted pixels/masks. It also exercises the CLI.
+input changes, and deliberately corrupted pixels/masks. Resampling tests cover
+fractional averages, source boundaries, nearest centers, NoData collisions,
+integer rounding, split/window consistency, COGs and corruption detection.
+The suite also exercises the CLI and asynchronous API.
 See the [validation report](validation-report.md) for tested versions and limits.
 
 The Windows `tests/validate_sentinel.py` harness uses a retained Sentinel-derived RGB
