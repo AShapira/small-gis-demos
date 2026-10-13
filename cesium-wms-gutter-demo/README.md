@@ -130,7 +130,7 @@ python3 -m venv .artifacts/venv
 npx playwright install chromium
 ```
 
-On Windows use `.artifacts\venv\Scripts\python.exe` / `pip.exe` instead. Preparing references needs this repository's existing `.runs/affine-probe/evidence/fixtures/` and `fixtures.json`. It verifies all 14 checksums and reads the actual TIFF pixel arrays; it never writes TIFFs. The independent inverse-affine oracle and tile positions are reused from [the earlier study](../docs/rotated-geotiff-study.md).
+On Windows use `.artifacts\venv\Scripts\python.exe` / `pip.exe` instead. Preparing references needs this repository's existing `geotiff-compression/.runs/affine-probe/evidence/fixtures/` and `fixtures.json`. It verifies all 14 checksums and reads the actual TIFF pixel arrays; it never writes TIFFs. The independent inverse-affine oracle and tile positions are reused from [the earlier study](../geotiff-compression/docs/rotated-geotiff-study.md).
 
 Start GeoServer and `npm start` in another terminal, then:
 
@@ -184,4 +184,4 @@ The implementation session restored the original stopped container state and lef
 - [Cesium Resource image loading and request forwarding](https://cesium.com/learn/cesiumjs/ref-doc/Resource.html)
 - [Web Mercator native tile bounds](https://cesium.com/learn/cesiumjs/ref-doc/WebMercatorTilingScheme.html#tileXYToNativeRectangle)
 - [Cesium imagery filtering](https://cesium.com/learn/cesiumjs/ref-doc/ImageryLayer.html)
-- [Underlying GeoServer investigation](../docs/rotated-geotiff-study.md)
+- [Underlying GeoServer investigation](../geotiff-compression/docs/rotated-geotiff-study.md)

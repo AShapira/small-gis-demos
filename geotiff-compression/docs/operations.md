@@ -1,5 +1,7 @@
 # Operations and recovery
 
+Run the commands below from the `geotiff-compression/` demo folder.
+
 ## Isolation
 
 The launcher selects an explicit Windows rootless Podman connection. It does
@@ -107,7 +109,7 @@ comparisons use the separately recorded WebP image for all compared encoders.
 `infra/requirements.lock.txt` pins every locally installed Python dependency.
 NumPy 1.26.4, SciPy 1.15.3, contourpy 1.3.3 and tifffile 2025.5.10 form the
 verified GDAL-compatible combination. `pip check` must pass after rebuilding.
-Run `python -m tests.integration_host` from this checkout for a short synthetic
+Run `python -m tests.integration_host` from the demo folder for a short synthetic
 real-container resource/resume check; it uses the existing fixture and restarts
 only the benchmark GeoServer. It is not a production performance run.
 

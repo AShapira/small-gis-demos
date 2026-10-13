@@ -14,7 +14,7 @@
   LGPL-2.1 and Eclipse ImageN 0.9.2 affine code licensed under Apache-2.0.
   They are source diffs, not bundled binaries; preserve upstream licenses
   when building or distributing them.
-- Python packages are listed in `infra/requirements.txt` and the worker's
+- Python packages are listed in `geotiff-compression/infra/requirements.txt` and the worker's
   installed-package inventory. They include aiohttp, requests, Shapely, tqdm,
   PyYAML, NumPy, Pillow, scikit-image, Matplotlib, psutil and Python-Markdown.
 - Sentinel-2 source imagery: Copernicus Sentinel data obtained through CDSE.

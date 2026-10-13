@@ -261,7 +261,7 @@ codec selection controls the raster data tiles, not that internal mask encoding.
 
 ### What the existing compression benchmark measured
 
-The [completed study](../docs/benchmark-results.md) used one 32,768 × 52,224,
+The [completed study](../geotiff-compression/docs/benchmark-results.md) used one 32,768 × 52,224,
 three-band Byte Sentinel-derived RGB mosaic. The numbers below were copied from
 its retained conversion manifests and checked against its final report. A
 [sanitized numerical extract](compression-benchmark.json) records exact bytes,

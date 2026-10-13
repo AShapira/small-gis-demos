@@ -237,7 +237,7 @@ Wait until the seed-task listing is empty, then request a tile twice and inspect
 
 ## Reproduction and retained assets
 
-The orchestration script reuses the retained benchmark containers without calling destructive benchmark lifecycle helpers. It requires the benchmark's `israel-rgb-5gb` containers, network, data volume and admin secret; a fresh clone must first set up that environment using the [benchmark guide](geoserver-benchmark.md). It finds `podman` or `podman.exe` on `PATH`; set `AFFINE_PODMAN` to the full executable path when needed (for example, the Windows executable from WSL). Commands run from the repository root:
+The orchestration script reuses the retained benchmark containers without calling destructive benchmark lifecycle helpers. It requires the benchmark's `israel-rgb-5gb` containers, network, data volume and admin secret; a fresh clone must first set up that environment using the [benchmark guide](geoserver-benchmark.md). It finds `podman` or `podman.exe` on `PATH`; set `AFFINE_PODMAN` to the full executable path when needed (for example, the Windows executable from WSL). Commands run from the `geotiff-compression/` demo folder:
 
 ```bash
 python3 scripts/affine-probe.py preflight

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Consolidate the GeoTIFF compression benchmark under `geotiff-compression/`,
+  including its package, configs, scripts, tests, documentation and evidence.
+  Update CI, installation instructions and cross-demo references.
+
 - Add opt-in COG merge output (`--cog` / `cog=True`, default false), with
   nearest, average, mode or no overviews. Preserve and exhaustively verify
   full-resolution sample bits, masks and core metadata against the original inputs.

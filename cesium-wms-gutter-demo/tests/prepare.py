@@ -8,11 +8,11 @@ import numpy as np
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-REPO = ROOT.parent
-sys.path.insert(0, str(REPO))
+BENCHMARK = ROOT.parent / 'geotiff-compression'
+sys.path.insert(0, str(BENCHMARK))
 from rasterbench.affine_probe import cases, expected, tile, tile_at, world
 
-study = REPO / '.runs/affine-probe/evidence'
+study = BENCHMARK / '.runs/affine-probe/evidence'
 fixtures = json.loads((study / 'fixtures.json').read_text())
 references = ROOT / '.artifacts/references'
 references.mkdir(parents=True, exist_ok=True)

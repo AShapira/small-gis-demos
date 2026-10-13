@@ -21,6 +21,8 @@ areas, not repeated pixels or artificially enlarged source data.
 See [methodology](methodology.md), [operations](operations.md), and
 [third-party dependencies](../THIRD_PARTY_NOTICES.md).
 
+All commands below run from the `geotiff-compression/` demo folder.
+
 ## Requirements
 
 - Windows Podman Desktop with a running WSL machine and its **rootless**
@@ -37,7 +39,7 @@ See [methodology](methodology.md), [operations](operations.md), and
 
 ## Windows PowerShell
 
-From this repository, using the Python executable selected for the controller:
+From `geotiff-compression/`, using the Python executable selected for the controller:
 
 ```powershell
 python -m pip install -e .

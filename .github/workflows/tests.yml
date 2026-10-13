@@ -34,6 +34,9 @@ jobs:
       - run: /usr/bin/python3 -m unittest discover -s vrt-overviews/tests -v
   unit-tests:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: geotiff-compression
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -45,6 +48,7 @@ jobs:
         env:
           PYTHONPATH: .:.build/copernicus
       - name: Parse standalone script with Python 3.7 grammar
+        working-directory: .
         run: |
           python - <<'PY'
           import ast
