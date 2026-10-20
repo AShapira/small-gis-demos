@@ -67,3 +67,8 @@ builds, and transfer bundles are also ignored.
   The project also disables the SDK's implicit workload-library feed, which can
   otherwise provide a different package with the same ID/version than the
   explicitly configured feed. Package versions and lock-file hashes are retained.
+- `RunAOTCompilation` is left unset (AOT is opt-in) while `WasmBuildNative=false`
+  selects the prebuilt runtime. With .NET 10.0.12's WebAssembly workload installed,
+  explicitly setting AOT to `false` differs from the runtime pack's empty default
+  and incorrectly requests native relinking. Removing that redundant setting
+  avoids the conflict without requiring the workload for this demo.

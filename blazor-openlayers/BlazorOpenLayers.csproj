@@ -7,7 +7,7 @@
     <!-- Keep locked package hashes independent of preinstalled SDK workloads. -->
     <DisableImplicitLibraryPacksFolder>true</DisableImplicitLibraryPacksFolder>
     <RuntimeFrameworkVersion>10.0.12</RuntimeFrameworkVersion>
-    <RunAOTCompilation>false</RunAOTCompilation>
+    <!-- Leave RunAOTCompilation unset: explicit false triggers workload relinking in .NET 10.0.12. -->
     <WasmBuildNative>false</WasmBuildNative>
     <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
     <DefaultItemExcludes>$(DefaultItemExcludes);offline-bundle/**;.artifacts/**</DefaultItemExcludes>
