@@ -61,3 +61,6 @@ builds, and transfer bundles are also ignored.
   58 WMTS requests, zero external browser requests and zero page script errors.
   Graphics, projection, controls, resize, error paths and cleanup passed.
 - Vendored OpenLayers checksums and JavaScript syntax checks passed.
+- The committed lock file also passed restore from NuGet.org in a fresh source
+  copy and empty package/HTTP caches. CI uses job-local NuGet caches and
+  `--locked-mode --no-http-cache` to avoid relying on the runner's preloaded cache.
