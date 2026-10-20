@@ -13,6 +13,8 @@ There is no service worker, external basemap, database, or server-side Blazor ap
 ## Quick start
 
 Use the SDK pinned in `global.json` (**10.0.401**, runtime/packages **10.0.12**).
+The project excludes the SDK's implicit workload-package feed so locked restores
+use the configured NuGet sources consistently across machines.
 From this directory on a connected development machine:
 
 ```powershell

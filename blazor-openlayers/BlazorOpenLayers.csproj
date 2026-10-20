@@ -4,6 +4,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <!-- Keep locked package hashes independent of preinstalled SDK workloads. -->
+    <DisableImplicitLibraryPacksFolder>true</DisableImplicitLibraryPacksFolder>
     <RuntimeFrameworkVersion>10.0.12</RuntimeFrameworkVersion>
     <RunAOTCompilation>false</RunAOTCompilation>
     <WasmBuildNative>false</WasmBuildNative>

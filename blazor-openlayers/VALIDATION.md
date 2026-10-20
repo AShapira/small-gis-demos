@@ -64,3 +64,6 @@ builds, and transfer bundles are also ignored.
 - The committed lock file also passed restore from NuGet.org in a fresh source
   copy and empty package/HTTP caches. CI uses job-local NuGet caches and
   `--locked-mode --no-http-cache` to avoid relying on the runner's preloaded cache.
+  The project also disables the SDK's implicit workload-library feed, which can
+  otherwise provide a different package with the same ID/version than the
+  explicitly configured feed. Package versions and lock-file hashes are retained.
