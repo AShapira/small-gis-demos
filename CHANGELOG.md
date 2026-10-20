@@ -13,6 +13,18 @@
   including overviews, and retain CPU/RAM controls and cooperative cancellation.
   Document options, temporary storage costs and COG codec compatibility.
 
+## 0.11.0 — 2026-10-20
+
+- Add a standalone QGIS/OSGeo4W-shell NASADEM merger producing 5°, 10°, or
+  20° COG blocks from a local VRT and height tiles. Preserve shared endpoint
+  samples, source ordering, masks and NoData without resampling base elevations.
+- Include bounded parallelism, storage reservations, resumable checkpoints,
+  cooperative cancellation, optional internal overviews and exhaustive
+  independent pixel verification.
+- Add 33 regression tests and a public-data download helper. Validate two
+  adjacent 10° blocks from 160 real tiles, comparing all 2,592,144,002 base
+  pixels and shared edges, then reverify and resume without rewriting outputs.
+
 ## 0.9.0 — 2026-10-20
 
 - Add a dedicated Kartoza GeoServer 2.28.5 affine-raster patch bundle with

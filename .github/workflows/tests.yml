@@ -70,6 +70,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y python3-gdal python3-numpy
       - run: /usr/bin/python3 -m unittest discover -s geotiff-merge/tests -v
       - run: /usr/bin/python3 -m unittest discover -s vrt-overviews/tests -v
+      - run: /usr/bin/python3 -m unittest discover -s nasadem-cog/tests -v
   unit-tests:
     runs-on: ubuntu-latest
     defaults:
