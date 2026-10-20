@@ -1,0 +1,20 @@
+{
+  "image": "docker.io/kartoza/geoserver@sha256:a500f30ec973014be203851290e89996cfccfe4335b1b4345047f64eda05521d",
+  "geoserver": "2.28.5",
+  "geotools": "34.5",
+  "imagen": "0.9.1",
+  "java_release": 17,
+  "library_directory": "/usr/local/tomcat/webapps/geoserver/WEB-INF/lib",
+  "original_jars": {
+    "gt-render-34.5.jar": "00f70a023e0c8fad7e2ed94d3a968288e5cdeb94647d35467ac30627094086a0",
+    "affine-0.9.1.jar": "ea17734a50db1d2b4c2fd3c072dd93a30b4d5edcdc77da82ed9a14f3fedfa30b"
+  },
+  "source_sha256": {
+    "GridCoverageReaderHelper.java": "6e0f27275f683c6da6f14f82e2b6b7859714b72129321df896a9c6e1d5752f98",
+    "GridCoverageReaderHelper.java.original": "613ad2b7de133f6b2d69f655633431f2e36b462bee6d48a6aebcba52a4b764c3",
+    "AffineOpImage.java": "271baa590c01cf89a8cfee6a0f21478b52bf419422315434f6f2a52f022044a8",
+    "AffineOpImage.java.original": "0a6530156ac4f00b40fcb272c3c950ffbc4e024a05562b4502122028308b24d4",
+    "imagen-0.9.1.patch": "11c84087bd0b457686633bb7d2685330272b78b415cfa983c656ab9064673ff7",
+    "geotools-34.5.patch": "9dc28d7e8228e2108be83f699582338539c97dba77bb950038756ba66670d3c4"
+  }
+}

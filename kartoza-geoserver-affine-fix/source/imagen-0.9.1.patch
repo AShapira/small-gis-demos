@@ -1,0 +1,36 @@
+--- AffineOpImage.java.original
++++ AffineOpImage.java
+@@ -755,10 +755,10 @@
+                 x2 = tmp;
+             }
+ 
+-            int dx1 = ceilRatio(x1, xdenom);
++            int dx1 = xdenom < 0 ? floorRatio(x1, xdenom) + 1 : ceilRatio(x1, xdenom);
+             clipMinX = Math.max(clipMinX, dx1);
+ 
+-            int dx2 = floorRatio(x2, xdenom) + 1;
++            int dx2 = xdenom < 0 ? floorRatio(x2, xdenom) + 1 : ceilRatio(x2, xdenom);
+             clipMaxX = Math.min(clipMaxX, dx2);
+         } else {
+             // xdenom == 0, all points have same x coordinate as the first
+@@ -783,10 +783,10 @@
+                 y2 = tmp;
+             }
+ 
+-            int dx1 = ceilRatio(y1, ydenom);
++            int dx1 = ydenom < 0 ? floorRatio(y1, ydenom) + 1 : ceilRatio(y1, ydenom);
+             clipMinX = Math.max(clipMinX, dx1);
+ 
+-            int dx2 = floorRatio(y2, ydenom) + 1;
++            int dx2 = ydenom < 0 ? floorRatio(y2, ydenom) + 1 : ceilRatio(y2, ydenom);
+             clipMaxX = Math.min(clipMaxX, dx2);
+         } else {
+             // ydenom == 0, all points have same y coordinate as the first
+@@ -797,6 +797,7 @@
+ 
+         if (clipMinX > dst_max_x) clipMinX = dst_max_x;
+         if (clipMaxX < dst_min_x) clipMaxX = dst_min_x;
++        if (clipMaxX < clipMinX) clipMaxX = clipMinX;
+ 
+         return RangeFactory.create(clipMinX, clipMaxX);
+     }

@@ -1,5 +1,9 @@
 # Third-party software
 
+- The Kartoza 2.28.5 affine bundle includes modified GeoTools 34.5 and ImageN
+  0.9.1 JARs, full matching source archives, patches and upstream licenses under
+  `kartoza-geoserver-affine-fix/source/`. The modified GeoTools code is LGPL-2.1;
+  the modified ImageN affine code is Apache-2.0. See the bundle's source README.
 - Copernicus downloader: Alex Shapira, GPL-2.0-or-later. Source is fetched at
   commit `ae22a599ef56d2d17344882c9b77658242f32643`; its license is retained
   in `/opt/copernicus/LICENSE` in the worker. The original repository is not edited.

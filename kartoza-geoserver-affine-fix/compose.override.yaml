@@ -1,0 +1,14 @@
+# Add to your existing Compose files; change the service name if necessary.
+# AFFINE_FIX_BUNDLE must be an absolute directory path on the Docker host.
+services:
+  geoserver:
+    image: docker.io/kartoza/geoserver@sha256:a500f30ec973014be203851290e89996cfccfe4335b1b4345047f64eda05521d
+    entrypoint: ["/bin/bash", "/opt/affine-fix/start-with-affine-fix.sh"]
+    command: []
+    volumes:
+      - type: bind
+        source: ${AFFINE_FIX_BUNDLE:?Set AFFINE_FIX_BUNDLE to the absolute bundle path}
+        target: /opt/affine-fix
+        read_only: true
+        bind:
+          create_host_path: false

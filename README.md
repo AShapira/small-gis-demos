@@ -12,6 +12,7 @@ guides live in `docs/`; repository-wide CI lives in `.github/`.
 | VRT with JPEG overviews | Combine folder trees of aligned RGB/grayscale GeoTIFFs into one VRT with JPEG overviews and lossless transparency masks; OSGeo4W/QGIS-shell CLI. | [vrt-overviews/](vrt-overviews/README.md) |
 | GeoServer raster benchmark | Compare raster compression, conversion quality, WMS/WMTS delivery and resource profiles using Windows Podman Desktop. | [geotiff-compression/](geotiff-compression/README.md) |
 | Cesium WMS gutter comparison | Compare gutters 0, 20, 64, 128 and 256 on rotated GeoTIFFs, with sharp nearest-neighbour rendering and browser performance measurements. | [cesium-wms-gutter-demo/](cesium-wms-gutter-demo/README.md) |
+| Kartoza GeoServer affine fix | Install version-checked replacement JARs through startup scripts without a custom image; includes rotated-GeoTIFF WMS/GWC validation and edge limitations. | [kartoza-geoserver-affine-fix/](kartoza-geoserver-affine-fix/README.md) |
 
 The [rotated-GeoTIFF study](geotiff-compression/docs/rotated-geotiff-study.md) documents the
 reproduction, tested workarounds, remaining footprint-edge failures and an
@@ -53,6 +54,7 @@ Public validation summaries retain test outcomes with local paths redacted.
 
 ## Tests
 
+- Kartoza affine patch startup checks: `python -m unittest discover -s kartoza-geoserver-affine-fix/tests -p 'test_*.py' -v`. CI also verifies every bundle checksum; live rendering validation is documented in the bundle.
 - GeoTIFF merge: use QGIS 4.2 Python (GDAL/NumPy included), then run
   `python -m unittest discover -s geotiff-merge/tests -v` (generated rasters only).
 - [Overview-generator native Windows tests](overview-generator/tests/README.md)
@@ -65,5 +67,5 @@ Public validation summaries retain test outcomes with local paths redacted.
 - Cesium adapter unit tests: `cd cesium-wms-gutter-demo && npm ci && npm test`
   with Node.js 22+. The demo README covers the separate browser/GeoServer checks.
 
-Release: **0.7.0**. See [CHANGELOG.md](CHANGELOG.md) and
+Release: **0.9.0**. See [CHANGELOG.md](CHANGELOG.md) and
 [third-party notices](THIRD_PARTY_NOTICES.md).

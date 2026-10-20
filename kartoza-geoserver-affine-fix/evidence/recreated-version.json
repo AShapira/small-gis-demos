@@ -1,0 +1,23 @@
+{
+  "about": {
+    "resource": [
+      {
+        "@name": "GeoServer",
+        "Build-Timestamp": "14-Aug-2026 14:53",
+        "Version": "2.28.5",
+        "Git-Revision": "193b88aaf1d26f6c4f8be4bb7ca48342b51d5c7f"
+      },
+      {
+        "@name": "GeoTools",
+        "Build-Timestamp": "14-Aug-2026 14:00",
+        "Version": 34.5,
+        "Git-Revision": "aac73e9b89821331e77f67f1dd0921e541a78cfc"
+      },
+      {
+        "@name": "GeoWebCache",
+        "Version": "1.28.5",
+        "Git-Revision": "1.28.x/59640420454b73f1e04e8409cc6ed43f4b24fed2"
+      }
+    ]
+  }
+}

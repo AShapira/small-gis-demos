@@ -1,0 +1,25 @@
+{
+  "image": "docker.io/kartoza/geoserver@sha256:a500f30ec973014be203851290e89996cfccfe4335b1b4345047f64eda05521d",
+  "custom_image_built": false,
+  "java": "javac 17.0.20",
+  "libraries": {
+    "gt-render-34.5.jar": {
+      "original_sha256": "00f70a023e0c8fad7e2ed94d3a968288e5cdeb94647d35467ac30627094086a0",
+      "patched_sha256": "58b866befba51929643a85dbc9f98c2757280f709c6b1e4d834f58330f9d3264",
+      "changed_entries": [
+        "org/geotools/renderer/lite/gridcoverage2d/GridCoverageReaderHelper.class"
+      ],
+      "bytes": 612372
+    },
+    "affine-0.9.1.jar": {
+      "original_sha256": "ea17734a50db1d2b4c2fd3c072dd93a30b4d5edcdc77da82ed9a14f3fedfa30b",
+      "patched_sha256": "b751efc7e6f00cdb57d45aa5c2f7dc31af3d56137d1f5220f459b52e8b8f7ee6",
+      "changed_entries": [
+        "org/eclipse/imagen/media/affine/AffineOpImage.class"
+      ],
+      "bytes": 124410
+    }
+  },
+  "original_regression_exit": 1,
+  "patched_regression_exit": 0
+}

@@ -1,0 +1,140 @@
+[
+  {
+    "label": "stock-g0-unthrottled",
+    "valid_pixels": 65536,
+    "missing_pixels": 29022,
+    "missing_fraction": 0.442840576171875,
+    "mae_valid_nonblank": 0.004464041189680671,
+    "exact_fraction_nonblank": 0.9999178397327053,
+    "name": "rot30_base",
+    "tile": [
+      24,
+      10021196,
+      6798186
+    ],
+    "route": "wms",
+    "interpolation": "nearest neighbor",
+    "seconds": 0.015382497999780753,
+    "bytes": 1956,
+    "url": "http://127.0.0.1:18093/geoserver/wms?service=WMS&version=1.1.1&request=GetMap&layers=affine_probe%3Arot30_base&styles=&srs=EPSG%3A3857&bbox=3899692.9729387276%2C3798970.4675730728%2C3899695.3615958616%2C3798972.856230207&width=256&height=256&format=image%2Fpng&transparent=false&bgcolor=0xFFFFFF&interpolations=nearest+neighbor&format_options=antialias%3Aoff",
+    "status": 200,
+    "cache": null,
+    "pad": 0,
+    "image": "images/stock-g0-unthrottled/rot30_base_wms_24_10021196_6798186.png"
+  },
+  {
+    "label": "patched-g0",
+    "valid_pixels": 65536,
+    "missing_pixels": 0,
+    "missing_fraction": 0.0,
+    "mae_valid_nonblank": 0.00689697265625,
+    "exact_fraction_nonblank": 0.9998779296875,
+    "name": "rot30_base",
+    "tile": [
+      24,
+      10021196,
+      6798186
+    ],
+    "route": "wms",
+    "interpolation": "nearest neighbor",
+    "seconds": 0.013876654999876337,
+    "bytes": 2213,
+    "url": "http://127.0.0.1:18093/geoserver/wms?service=WMS&version=1.1.1&request=GetMap&layers=affine_probe%3Arot30_base&styles=&srs=EPSG%3A3857&bbox=3899692.9729387276%2C3798970.4675730728%2C3899695.3615958616%2C3798972.856230207&width=256&height=256&format=image%2Fpng&transparent=false&bgcolor=0xFFFFFF&interpolations=nearest+neighbor&format_options=antialias%3Aoff",
+    "status": 200,
+    "cache": null,
+    "pad": 0,
+    "image": "images/patched-g0/rot30_base_wms_24_10021196_6798186.png"
+  },
+  {
+    "label": "patched-g1",
+    "valid_pixels": 65536,
+    "missing_pixels": 0,
+    "missing_fraction": 0.0,
+    "mae_valid_nonblank": 0.011932373046875,
+    "exact_fraction_nonblank": 0.9998779296875,
+    "name": "rot30_base",
+    "tile": [
+      24,
+      10021196,
+      6798186
+    ],
+    "route": "wms",
+    "interpolation": "nearest neighbor",
+    "seconds": 0.008299013999931049,
+    "bytes": 2203,
+    "url": "http://127.0.0.1:18093/geoserver/wms?service=WMS&version=1.1.1&request=GetMap&layers=affine_probe%3Arot30_base&styles=&srs=EPSG%3A3857&bbox=3899692.963608036%2C3798970.458242381%2C3899695.3709265534%2C3798972.8655608986&width=258&height=258&format=image%2Fpng&transparent=false&bgcolor=0xFFFFFF&interpolations=nearest+neighbor&format_options=antialias%3Aoff",
+    "status": 200,
+    "cache": null,
+    "pad": 1,
+    "image": "images/patched-g1/rot30_base_wms_24_10021196_6798186.png"
+  },
+  {
+    "label": "stock-g0-unthrottled",
+    "valid_pixels": 65536,
+    "missing_pixels": 15176,
+    "missing_fraction": 0.2315673828125,
+    "mae_valid_nonblank": 0.006354249404289118,
+    "exact_fraction_nonblank": 0.9999602859412232,
+    "name": "rot30_base",
+    "tile": [
+      24,
+      10021003,
+      6797199
+    ],
+    "route": "wms",
+    "interpolation": "nearest neighbor",
+    "seconds": 0.01962072000014814,
+    "bytes": 1918,
+    "url": "http://127.0.0.1:18093/geoserver/wms?service=WMS&version=1.1.1&request=GetMap&layers=affine_probe%3Arot30_base&styles=&srs=EPSG%3A3857&bbox=3899231.962111883%2C3801328.072164243%2C3899234.350769017%2C3801330.460821377&width=256&height=256&format=image%2Fpng&transparent=false&bgcolor=0xFFFFFF&interpolations=nearest+neighbor&format_options=antialias%3Aoff",
+    "status": 200,
+    "cache": null,
+    "pad": 0,
+    "image": "images/stock-g0-unthrottled/rot30_base_wms_24_10021003_6797199.png"
+  },
+  {
+    "label": "patched-g0",
+    "valid_pixels": 65536,
+    "missing_pixels": 0,
+    "missing_fraction": 0.0,
+    "mae_valid_nonblank": 0.00732421875,
+    "exact_fraction_nonblank": 0.9999542236328125,
+    "name": "rot30_base",
+    "tile": [
+      24,
+      10021003,
+      6797199
+    ],
+    "route": "wms",
+    "interpolation": "nearest neighbor",
+    "seconds": 0.015998392999790667,
+    "bytes": 1132,
+    "url": "http://127.0.0.1:18093/geoserver/wms?service=WMS&version=1.1.1&request=GetMap&layers=affine_probe%3Arot30_base&styles=&srs=EPSG%3A3857&bbox=3899231.962111883%2C3801328.072164243%2C3899234.350769017%2C3801330.460821377&width=256&height=256&format=image%2Fpng&transparent=false&bgcolor=0xFFFFFF&interpolations=nearest+neighbor&format_options=antialias%3Aoff",
+    "status": 200,
+    "cache": null,
+    "pad": 0,
+    "image": "images/patched-g0/rot30_base_wms_24_10021003_6797199.png"
+  },
+  {
+    "label": "patched-g1",
+    "valid_pixels": 65536,
+    "missing_pixels": 0,
+    "missing_fraction": 0.0,
+    "mae_valid_nonblank": 0.00732421875,
+    "exact_fraction_nonblank": 0.9999542236328125,
+    "name": "rot30_base",
+    "tile": [
+      24,
+      10021003,
+      6797199
+    ],
+    "route": "wms",
+    "interpolation": "nearest neighbor",
+    "seconds": 0.008193273999950179,
+    "bytes": 1129,
+    "url": "http://127.0.0.1:18093/geoserver/wms?service=WMS&version=1.1.1&request=GetMap&layers=affine_probe%3Arot30_base&styles=&srs=EPSG%3A3857&bbox=3899231.952781191%2C3801328.0628335513%2C3899234.3600997087%2C3801330.470152069&width=258&height=258&format=image%2Fpng&transparent=false&bgcolor=0xFFFFFF&interpolations=nearest+neighbor&format_options=antialias%3Aoff",
+    "status": 200,
+    "cache": null,
+    "pad": 1,
+    "image": "images/patched-g1/rot30_base_wms_24_10021003_6797199.png"
+  }
+]

@@ -1,0 +1,44 @@
+[
+  {
+    "valid_pixels": 65536,
+    "missing_pixels": 0,
+    "missing_fraction": 0.0,
+    "mae_valid_nonblank": 0.011932373046875,
+    "exact_fraction_nonblank": 0.9998779296875,
+    "name": "rot30_base",
+    "tile": [
+      24,
+      10021196,
+      6798186
+    ],
+    "route": "gwc",
+    "interpolation": "nearest neighbor",
+    "seconds": 0.005982520000088698,
+    "bytes": 2821,
+    "url": "http://127.0.0.1:18093/geoserver/gwc/service/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile&LAYER=affine_probe%3Arot30_base&STYLE=&FORMAT=image%2Fpng&TILEMATRIXSET=affine_3857&TILEMATRIX=affine_3857%3A24&TILECOL=10021196&TILEROW=6798186",
+    "status": 200,
+    "cache": "MISS",
+    "pad": 0
+  },
+  {
+    "valid_pixels": 65536,
+    "missing_pixels": 0,
+    "missing_fraction": 0.0,
+    "mae_valid_nonblank": 0.011932373046875,
+    "exact_fraction_nonblank": 0.9998779296875,
+    "name": "rot30_base",
+    "tile": [
+      24,
+      10021196,
+      6798186
+    ],
+    "route": "gwc",
+    "interpolation": "nearest neighbor",
+    "seconds": 0.0030641540001852263,
+    "bytes": 2821,
+    "url": "http://127.0.0.1:18093/geoserver/gwc/service/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile&LAYER=affine_probe%3Arot30_base&STYLE=&FORMAT=image%2Fpng&TILEMATRIXSET=affine_3857&TILEMATRIX=affine_3857%3A24&TILECOL=10021196&TILEROW=6798186",
+    "status": 200,
+    "cache": "HIT",
+    "pad": 0
+  }
+]

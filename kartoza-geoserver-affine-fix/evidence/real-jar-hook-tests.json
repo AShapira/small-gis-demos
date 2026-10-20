@@ -1,0 +1,28 @@
+[
+  {
+    "mode": "apply",
+    "exit": 0,
+    "output": "AFFINE_FIX apply gt-render-34.5.jar 58b866befba51929643a85dbc9f98c2757280f709c6b1e4d834f58330f9d3264\nAFFINE_FIX apply affine-0.9.1.jar b751efc7e6f00cdb57d45aa5c2f7dc31af3d56137d1f5220f459b52e8b8f7ee6\n"
+  },
+  {
+    "mode": "apply",
+    "exit": 0,
+    "output": "AFFINE_FIX apply gt-render-34.5.jar 58b866befba51929643a85dbc9f98c2757280f709c6b1e4d834f58330f9d3264\nAFFINE_FIX apply affine-0.9.1.jar b751efc7e6f00cdb57d45aa5c2f7dc31af3d56137d1f5220f459b52e8b8f7ee6\n"
+  },
+  {
+    "mode": "restore",
+    "exit": 0,
+    "output": "AFFINE_FIX restore gt-render-34.5.jar 00f70a023e0c8fad7e2ed94d3a968288e5cdeb94647d35467ac30627094086a0\nAFFINE_FIX restore affine-0.9.1.jar ea17734a50db1d2b4c2fd3c072dd93a30b4d5edcdc77da82ed9a14f3fedfa30b\n"
+  },
+  {
+    "mode": "restore",
+    "exit": 0,
+    "output": "AFFINE_FIX restore gt-render-34.5.jar 00f70a023e0c8fad7e2ed94d3a968288e5cdeb94647d35467ac30627094086a0\nAFFINE_FIX restore affine-0.9.1.jar ea17734a50db1d2b4c2fd3c072dd93a30b4d5edcdc77da82ed9a14f3fedfa30b\n"
+  },
+  {
+    "mode": "corrupt-payload",
+    "exit": 1,
+    "output": "AFFINE_FIX ERROR: Patched payload checksum mismatch: affine-0.9.1.jar\n",
+    "both_originals_unchanged": true
+  }
+]

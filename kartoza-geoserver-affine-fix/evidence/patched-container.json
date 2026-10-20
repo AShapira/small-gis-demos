@@ -1,0 +1,34 @@
+{
+  "Image": "74b748301aa0718343f844aeb6fefc58f34a7c7226dc38919d59678c5ab7f175",
+  "ImageName": "docker.io/kartoza/geoserver@sha256:a500f30ec973014be203851290e89996cfccfe4335b1b4345047f64eda05521d",
+  "limits": {
+    "NanoCpus": 4000000000,
+    "Memory": 8589934592
+  },
+  "mounts": [
+    {
+      "destination": "/data",
+      "rw": false,
+      "name": "rasterbench-israel-rgb-5gb-data"
+    },
+    {
+      "destination": "/opt/geoserver/data_dir",
+      "rw": true,
+      "name": "kartoza-affine-2285-catalog"
+    },
+    {
+      "destination": "/settings",
+      "rw": true,
+      "name": "kartoza-affine-2285-settings"
+    },
+    {
+      "destination": "/opt/affine-fix",
+      "rw": false,
+      "name": "kartoza-affine-2285-bundle"
+    }
+  ],
+  "jars": {
+    "gt-render-34.5.jar": "58b866befba51929643a85dbc9f98c2757280f709c6b1e4d834f58330f9d3264",
+    "affine-0.9.1.jar": "b751efc7e6f00cdb57d45aa5c2f7dc31af3d56137d1f5220f459b52e8b8f7ee6"
+  }
+}

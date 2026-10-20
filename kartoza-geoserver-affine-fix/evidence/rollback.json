@@ -1,0 +1,15 @@
+{
+  "original_jars": {
+    "gt-render-34.5.jar": "00f70a023e0c8fad7e2ed94d3a968288e5cdeb94647d35467ac30627094086a0",
+    "affine-0.9.1.jar": "ea17734a50db1d2b4c2fd3c072dd93a30b4d5edcdc77da82ed9a14f3fedfa30b"
+  },
+  "request": "http://127.0.0.1:18093/geoserver/wms?service=WMS&version=1.1.1&request=GetMap&layers=affine_probe%3Arot30_base&styles=&srs=EPSG%3A3857&bbox=3899692.9729387276%2C3798970.4675730728%2C3899695.3615958616%2C3798972.856230207&width=256&height=256&format=image%2Fpng&transparent=false&bgcolor=0xFFFFFF&interpolations=nearest+neighbor&format_options=antialias%3Aoff",
+  "metrics": {
+    "valid_pixels": 65536,
+    "missing_pixels": 29022,
+    "missing_fraction": 0.442840576171875,
+    "mae_valid_nonblank": 0.004464041189680671,
+    "exact_fraction_nonblank": 0.9999178397327053
+  },
+  "original_triangles_reproduced": true
+}

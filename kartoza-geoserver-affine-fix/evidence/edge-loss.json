@@ -1,0 +1,14 @@
+{
+  "wms": {
+    "affected_tiles": 16,
+    "missing_pixels": 16,
+    "max_missing_per_tile": 1,
+    "max_depth_source_pixels": 2.0551563937115134
+  },
+  "gwc": {
+    "affected_tiles": 16,
+    "missing_pixels": 16,
+    "max_missing_per_tile": 1,
+    "max_depth_source_pixels": 2.0551563937115134
+  }
+}

@@ -1,0 +1,3 @@
+Exception in thread "main" java.lang.AssertionError: Expected [0,2) but got RangeInt[0, 3]
+	at org.eclipse.imagen.media.affine.AffineScanlineRegression.check(AffineScanlineRegression.java:28)
+	at org.eclipse.imagen.media.affine.AffineScanlineRegression.main(AffineScanlineRegression.java:14)

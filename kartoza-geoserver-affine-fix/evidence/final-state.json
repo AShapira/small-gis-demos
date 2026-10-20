@@ -1,0 +1,36 @@
+{
+  "existing_containers_before": {
+    "rasterbench-israel-rgb-5gb-worker": "exited",
+    "rasterbench-israel-rgb-5gb-gs": "exited",
+    "affine-probe-2285": "exited",
+    "affine-probe-build": "exited",
+    "affine-probe-patched": "exited",
+    "affine-probe-patched2": "exited",
+    "affine-probe-patched3": "exited",
+    "affine-probe-patched4": "exited",
+    "affine-probe-patched5": "exited"
+  },
+  "existing_containers_after": {
+    "rasterbench-israel-rgb-5gb-worker": "exited",
+    "rasterbench-israel-rgb-5gb-gs": "exited",
+    "affine-probe-2285": "exited",
+    "affine-probe-build": "exited",
+    "affine-probe-patched": "exited",
+    "affine-probe-patched2": "exited",
+    "affine-probe-patched3": "exited",
+    "affine-probe-patched4": "exited",
+    "affine-probe-patched5": "exited"
+  },
+  "test_containers_after": {
+    "kartoza-affine-2285-builder": "exited",
+    "kartoza-affine-2285-stock": "exited",
+    "kartoza-affine-2285-hook-ro-rejected": "exited",
+    "kartoza-affine-2285-patched": "exited",
+    "kartoza-affine-2285-recreated": "exited"
+  },
+  "existing_states_unchanged": true,
+  "test_gwc_gutter_restored_to": 0,
+  "test_controlflow_restored": true,
+  "fixture_checksums_unchanged": true,
+  "data_volume_mounted_read_only": true
+}

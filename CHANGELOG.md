@@ -13,6 +13,19 @@
   including overviews, and retain CPU/RAM controls and cooperative cancellation.
   Document options, temporary storage costs and COG codec compatibility.
 
+## 0.9.0 — 2026-10-20
+
+- Add a dedicated Kartoza GeoServer 2.28.5 affine-raster patch bundle with
+  replacement GeoTools 34.5 / ImageN 0.9.1 JARs, startup installation and rollback,
+  exact image/library checksums, reproducible compilation, sources and licenses.
+  Deployment uses the stock image without building or committing a custom image.
+- Retain direct WMS and GWC evidence across 14 unchanged rotated/sheared TIFFs:
+  the patch removes large triangles and boundary exceptions; a one-pixel gutter
+  eliminates missing interior pixels in the tested matrix, with 16 isolated
+  footprint-edge omissions per path. Document gutter-0 limits and client cropping.
+- Validate startup, restart, recreation and rollback; add CI checks for bundle
+  integrity and seven startup-script regression cases.
+
 ## 0.7.0 — 2026-10-10
 
 - Add a standalone offline OSM basemap pipeline with configurable country

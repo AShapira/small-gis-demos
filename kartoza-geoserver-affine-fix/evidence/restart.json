@@ -1,0 +1,19 @@
+{
+  "container": "kartoza-affine-2285-patched",
+  "image": "74b748301aa0718343f844aeb6fefc58f34a7c7226dc38919d59678c5ab7f175",
+  "started_at": "2026-10-20T05:34:08.770336901+03:00",
+  "jars": {
+    "gt-render-34.5.jar": "58b866befba51929643a85dbc9f98c2757280f709c6b1e4d834f58330f9d3264",
+    "affine-0.9.1.jar": "b751efc7e6f00cdb57d45aa5c2f7dc31af3d56137d1f5220f459b52e8b8f7ee6"
+  },
+  "rendering_regression": {
+    "passed": true,
+    "failures": []
+  },
+  "hook_log_lines": [
+    "AFFINE_FIX apply gt-render-34.5.jar 58b866befba51929643a85dbc9f98c2757280f709c6b1e4d834f58330f9d3264",
+    "AFFINE_FIX apply affine-0.9.1.jar b751efc7e6f00cdb57d45aa5c2f7dc31af3d56137d1f5220f459b52e8b8f7ee6",
+    "AFFINE_FIX apply gt-render-34.5.jar 58b866befba51929643a85dbc9f98c2757280f709c6b1e4d834f58330f9d3264",
+    "AFFINE_FIX apply affine-0.9.1.jar b751efc7e6f00cdb57d45aa5c2f7dc31af3d56137d1f5220f459b52e8b8f7ee6"
+  ]
+}
