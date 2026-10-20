@@ -1,0 +1,20 @@
+:root { font-family: system-ui, sans-serif; color: #183047; background: #f4f7fa; }
+body { margin: 0; }
+main { max-width: 1400px; margin: auto; padding: 1.25rem; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+h1 { margin: 0; font-size: 1.7rem; }
+p { margin: .5rem 0; }
+button { padding: .65rem 1rem; border: 1px solid #315e86; border-radius: .35rem; background: white; color: #183047; cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+.legend { display: flex; gap: 1.5rem; margin: .8rem 0; }
+.legend span { display: inline-flex; align-items: center; gap: .5rem; }
+.legend i { display: inline-block; width: 1rem; }
+.point { height: 1rem; background: #d84924; border-radius: 50%; }
+.line { height: 0; border-top: 3px solid #2168c6; }
+.polygon { height: .8rem; border: 2px solid #22865b; background: #22865b33; }
+.map { height: max(350px, 70vh); width: 100%; background: #e8edf2; border: 1px solid #a6b6c5; border-radius: .35rem; overflow: hidden; }
+.map:focus-visible, button:focus-visible { outline: 3px solid #2168c6; outline-offset: 2px; }
+.status { min-height: 1.5rem; font-size: .9rem; }
+.loading { padding: 2rem; }
+#blazor-error-ui { display: none; position: fixed; bottom: 0; padding: 1rem; background: #fff3cd; width: 100%; }
+@media (max-width: 550px) { header { align-items: flex-start; flex-direction: column; } main { padding: .75rem; } }

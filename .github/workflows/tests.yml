@@ -16,6 +16,28 @@ jobs:
       - run: sha256sum -c SHA256SUMS
       - run: bash -n apply-affine-fix.sh start-with-affine-fix.sh
       - run: python -m unittest discover -s tests -p 'test_*.py' -v
+  blazor-openlayers:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: blazor-openlayers
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: blazor-openlayers/global.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: dotnet restore --locked-mode
+      - name: Keep prepared offline-bundle source out of the app build
+        run: |
+          New-Item -ItemType Directory -Force offline-bundle/source | Out-Null
+          Copy-Item Program.cs, MapOptions.cs, SampleGraphics.cs offline-bundle/source/
+      - run: dotnet publish -c Release --no-restore -o .artifacts/publish
+      - run: npm install --prefix .artifacts/browser playwright@1.58.2
+      - run: '& .\.artifacts\browser\node_modules\.bin\playwright.cmd install chromium'
+      - run: node tests/browser.mjs
   osm-basemap:
     runs-on: ubuntu-latest
     steps:

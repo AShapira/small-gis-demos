@@ -1,78 +1,11 @@
-# small-gis-demos
-
-Practical GIS demonstrations with reproducible tests and documented limits.
-Each demo lives in its own top-level folder with its own README. Shared reference
-guides live in `docs/`; repository-wide CI lives in `.github/`.
-
-| Demo | Purpose | Start here |
+| Demo | Purpose | Documentation |
 | --- | --- | --- |
-| Offline OSM basemaps | Build configurable country MBTiles and a global overview, then serve five recognizable styles through stock Kartoza GeoServer WMS/WMTS. | [osm-basemap-demo/](osm-basemap-demo/README.md) |
-| GeoTIFF merge for QGIS 4.2 | Merge aligned rasters into one file or an optional target size (+10% allowance), optionally coarsen pixel size, and exhaustively verify pixels and masks with CPU/RAM limits. | [geotiff-merge/](geotiff-merge/README.md) |
-| GeoTIFF overview generator | Rebuild external overviews with GDAL, bounded parallelism, dry runs, logs and cooperative cancellation; CLI and QGIS Python-console entry points. | [overview-generator/](overview-generator/README.md) |
-| VRT with JPEG overviews | Combine folder trees of aligned RGB/grayscale GeoTIFFs into one VRT with JPEG overviews and lossless transparency masks; OSGeo4W/QGIS-shell CLI. | [vrt-overviews/](vrt-overviews/README.md) |
-| GeoServer raster benchmark | Compare raster compression, conversion quality, WMS/WMTS delivery and resource profiles using Windows Podman Desktop. | [geotiff-compression/](geotiff-compression/README.md) |
-| Cesium WMS gutter comparison | Compare gutters 0, 20, 64, 128 and 256 on rotated GeoTIFFs, with sharp nearest-neighbour rendering and browser performance measurements. | [cesium-wms-gutter-demo/](cesium-wms-gutter-demo/README.md) |
-| Kartoza GeoServer affine fix | Install version-checked replacement JARs through startup scripts without a custom image; includes rotated-GeoTIFF WMS/GWC validation and edge limitations. | [kartoza-geoserver-affine-fix/](kartoza-geoserver-affine-fix/README.md) |
-
-The [rotated-GeoTIFF study](geotiff-compression/docs/rotated-geotiff-study.md) documents the
-reproduction, tested workarounds, remaining footprint-edge failures and an
-isolated experimental source correction. Gutter 128 removes the tested interior
-triangles; it is a partial workaround, not a universal fix.
-
-## Overview generator
-
-The standalone script and its tests live under `overview-generator/`.
-Run in a Python environment with GDAL installed, such as QGIS's bundled Python:
-
-```bash
-python overview-generator/overview-generator.py /path/to/test-rasters --dry-run
-python overview-generator/overview-generator.py /path/to/test-rasters --workers 2
-```
-
-A real run replaces existing overviews and, by default, removes embedded
-overviews from ordinary TIFFs. Read its [README](overview-generator/README.md)
-before using real data. Native validation used QGIS 4.2 / GDAL 3.13.1 on
-Windows; the original QGIS 3.28 compatibility target remains unverified.
-
-## GeoServer benchmark
-
-The compression test, Python package, configurations, container builds, scripts,
-tests and results live under [geotiff-compression/](geotiff-compression/README.md).
-Run benchmark commands from that folder. Install it from the repository root
-with `python -m pip install -e ./geotiff-compression`; this supplies the
-`rasterbench` CLI. Each other demo keeps its own instructions and dependencies.
-
-The historical 10-user study completed. Its
-[summary and limitations](geotiff-compression/docs/benchmark-results.md) distinguish measured
-results from the larger, unexecuted example matrix. Start with the
-[benchmark guide](geotiff-compression/docs/geoserver-benchmark.md) for setup and
-[operations guide](geotiff-compression/docs/operations.md) for lifecycle and recovery.
-
-Credentials, source imagery, generated test TIFFs, raw workstation logs,
-local operational checkpoints and email receipts are excluded from Git.
-Public validation summaries retain test outcomes with local paths redacted.
-
-## Tests
-
-- Kartoza affine patch startup checks: `python -m unittest discover -s kartoza-geoserver-affine-fix/tests -p 'test_*.py' -v`. CI also verifies every bundle checksum; live rendering validation is documented in the bundle.
-- GeoTIFF merge: use QGIS 4.2 Python (GDAL/NumPy included), then run
-  `python -m unittest discover -s geotiff-merge/tests -v` (generated rasters only).
-- [Overview-generator native Windows tests](overview-generator/tests/README.md)
-- VRT/JPEG overview tests: use GDAL 3.8+ Python with NumPy, then run
-  `python -m unittest discover -s vrt-overviews/tests -v` (generated rasters only).
-- Benchmark unit suite: follow the [demo test commands](geotiff-compression/README.md#tests)
-  from `geotiff-compression/`.
-- Container-backed integration and real benchmark runs are separate, opt-in
-  operations; unit tests do not start services or download imagery.
-- Cesium adapter unit tests: `cd cesium-wms-gutter-demo && npm ci && npm test`
-  with Node.js 22+. The demo README covers the separate browser/GeoServer checks.
-
-Release: **0.9.0**. See [CHANGELOG.md](CHANGELOG.md) and
-[third-party notices](THIRD_PARTY_NOTICES.md).
-
-## License
-
-Original project code and documentation are available under the [MIT License](LICENSE).
-Third-party components and their modifications retain their own licenses,
-including LGPL-2.1 for GeoTools and Apache-2.0 for ImageN. See
-[license scope](LICENSING.md) and [third-party notices](THIRD_PARTY_NOTICES.md).
+| Blazor + OpenLayers | Blazor WebAssembly map with a GeoServer WMTS basemap, client-side graphics and offline build tooling. | [README](blazor-openlayers/README.md) |
+| Offline OSM basemaps | Build country and world basemaps and serve them through GeoServer WMS/WMTS. | [README](osm-basemap-demo/README.md) |
+| GeoTIFF merge | Merge aligned rasters with optional pixel-size resampling and pixel/mask verification. | [README](geotiff-merge/README.md) |
+| GeoTIFF overview generator | Generate external overviews with bounded parallelism, dry runs and cancellation. | [README](overview-generator/README.md) |
+| VRT with JPEG overviews | Combine RGB or grayscale GeoTIFFs into a VRT with JPEG overviews and transparency masks. | [README](vrt-overviews/README.md) |
+| GeoServer raster benchmark | Compare raster compression, conversion quality, WMS/WMTS delivery and resource usage. | [README](geotiff-compression/README.md) |
+| Cesium WMS gutter comparison | Compare rendering gaps and performance across gutter sizes for rotated GeoTIFFs. | [README](cesium-wms-gutter-demo/README.md) |
+| Kartoza GeoServer 2.28.0 affine fix | Install version-matched rotated-GeoTIFF patches without building a custom image. | [README](kartoza-geoserver-2.28.0-affine-fix/README.md) |
+| Kartoza GeoServer 2.28.5 affine fix | Install and validate affine-raster patches; compare compatibility across 2.28 releases. | [README](kartoza-geoserver-affine-fix/README.md) |

@@ -10,6 +10,10 @@ retain their own licenses; see [license scope](LICENSING.md).
   0.9.1 JARs, full matching source archives, patches and upstream licenses under
   `kartoza-geoserver-affine-fix/source/`. The modified GeoTools code is LGPL-2.1;
   the modified ImageN affine code is Apache-2.0. See the bundle's source README.
+- OpenLayers 10.11.0: BSD-2-Clause. Its browser build and CSS are vendored in
+  `blazor-openlayers/wwwroot/vendor/openlayers/` with the upstream license and
+  checksums. The .NET SDK/runtime archive and NuGet packages used by this demo
+  retain their own bundled licenses; package versions are pinned in its lock file.
 - Copernicus downloader: Alex Shapira, GPL-2.0-or-later. Source is fetched at
   commit `ae22a599ef56d2d17344882c9b77658242f32643`; its license is retained
   in `/opt/copernicus/LICENSE` in the worker. The original repository is not edited.

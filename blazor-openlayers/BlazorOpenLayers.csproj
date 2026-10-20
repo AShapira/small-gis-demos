@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RuntimeFrameworkVersion>10.0.12</RuntimeFrameworkVersion>
+    <RunAOTCompilation>false</RunAOTCompilation>
+    <WasmBuildNative>false</WasmBuildNative>
+    <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+    <DefaultItemExcludes>$(DefaultItemExcludes);offline-bundle/**;.artifacts/**</DefaultItemExcludes>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.12" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.12" PrivateAssets="all" />
+  </ItemGroup>
+  <Target Name="CheckOpenLayersAssets" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('wwwroot/vendor/openlayers/ol.js') Or !Exists('wwwroot/vendor/openlayers/ol.css')" Text="Local OpenLayers assets are missing. Restore wwwroot/vendor/openlayers from the source checkout." />
+  </Target>
+</Project>
