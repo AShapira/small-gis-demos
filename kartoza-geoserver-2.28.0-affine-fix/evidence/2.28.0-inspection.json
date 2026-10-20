@@ -1,0 +1,59 @@
+{
+  "tag": "2.28.0",
+  "image": "docker.io/kartoza/geoserver@sha256:59cd5984bd4e6073dc07432ddb06f3e91e324fc32d55b304eaa5877cb7622667",
+  "architecture": "linux/amd64",
+  "container": "affine-compat-inspect-2.28.0-b948c1",
+  "image_id": "8285bf9f611cea6c2386070bc33b2ccf6aa2297e151338fd48bcfdc13a68dd8e",
+  "original_jars": {
+    "gt-render-34.0.jar": "67c0a9071926e52484f668c9ee5f75428601ae6441d0bf26f84881050e1e3d37",
+    "affine-0.9.0.jar": "3e30c3e6a3ee171526428949885178a1fc99aee04c103fa812613c0becb128a0"
+  },
+  "geotools": "34.0",
+  "imagen": "0.9.0",
+  "java": "javac 17.0.16",
+  "geoserver_jars": [
+    "gs-main-2.28.0.jar",
+    "gwc-core-1.28.0.jar"
+  ],
+  "entrypoint_scripts": {
+    "/scripts/entrypoint.sh": "72ae4f1d8c57ebb5415fc255ede02bf28b810a19be4bda179787926a5b1cf686",
+    "/scripts/functions.sh": "673cfabcdbd0c5bc9f6e626e89c82cae1eca6cc103d22e3a9fd8b05f42976b67"
+  },
+  "sources": {
+    "gt-render": {
+      "url": "https://repo.osgeo.org/repository/release/org/geotools/gt-render/34.0/gt-render-34.0-sources.jar",
+      "archive_sha256": "5b16af107c13e4cdee8b3399616333be056161a5eccff3a932437a9f033e1320",
+      "original_class_source_sha256": "ba519cd66c5cef7c3a23a2a4e2a17b11ec6688702a3fe7f0e7767509b24de7b2",
+      "patched_source_sha256": "bb6a72f0aad070f6767287a18a7fc69d05919a635f2896ef7e17a5bd4c712268",
+      "patch_method": "git apply --no-index -p0; exact context",
+      "patch_output": "Checking patch kartoza-geoserver-affine-fix/.artifacts/compatibility/2.28.0/GridCoverageReaderHelper.java...\nHunk #1 succeeded at 94 (offset 5 lines).\nHunk #2 succeeded at 127 (offset 6 lines).\nHunk #3 succeeded at 445 (offset 65 lines).\nApplied patch kartoza-geoserver-affine-fix/.artifacts/compatibility/2.28.0/GridCoverageReaderHelper.java cleanly."
+    },
+    "affine": {
+      "url": "https://repo.osgeo.org/repository/release/org/eclipse/imagen/affine/0.9.0/affine-0.9.0-sources.jar",
+      "archive_sha256": "41586fc84392293f02fbcbaf7ae3894eb465aa4756ae15e0f59555f6d8226526",
+      "original_class_source_sha256": "0a6530156ac4f00b40fcb272c3c950ffbc4e024a05562b4502122028308b24d4",
+      "patched_source_sha256": "271baa590c01cf89a8cfee6a0f21478b52bf419422315434f6f2a52f022044a8",
+      "patch_method": "git apply --no-index -p0; exact context",
+      "patch_output": "Checking patch kartoza-geoserver-affine-fix/.artifacts/compatibility/2.28.0/AffineOpImage.java...\nApplied patch kartoza-geoserver-affine-fix/.artifacts/compatibility/2.28.0/AffineOpImage.java cleanly."
+    }
+  },
+  "regression": {
+    "original_exit": 1,
+    "patched_exit": 0
+  },
+  "patched_jars": {
+    "gt-render-34.0.jar": {
+      "sha256": "b9914e88094778f34ffbe6d9a15329b1ae47d1be366f3b06370aa0fad98999b7",
+      "only_changed_entry": "org/geotools/renderer/lite/gridcoverage2d/GridCoverageReaderHelper.class"
+    },
+    "affine-0.9.0.jar": {
+      "sha256": "0d76d4d2de5bf9f7e4626ce9f46f5c7940f5f90a50d7d33aad85312b737a6782",
+      "only_changed_entry": "org/eclipse/imagen/media/affine/AffineOpImage.class"
+    }
+  },
+  "existing_bundle_test": {
+    "exit": 1,
+    "log": "AFFINE_FIX ERROR: Missing file or unsupported library symlink: gt-render-34.5.jar\n",
+    "both_originals_preserved": true
+  }
+}

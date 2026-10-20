@@ -1,0 +1,20 @@
+name: GeoServer 2.28.0 patch
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  verify-bundle:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kartoza-geoserver-2.28.0-affine-fix
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: sha256sum -c SHA256SUMS && sha256sum -c SOURCE_SHA256SUMS
+      - run: bash -n apply-affine-fix.sh start-with-affine-fix.sh
+      - run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - run: python package.py
+      - run: git diff --exit-code -- SHA256SUMS SOURCE_SHA256SUMS

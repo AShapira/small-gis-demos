@@ -1,0 +1,41 @@
+{
+  "image": "docker.io/kartoza/geoserver@sha256:59cd5984bd4e6073dc07432ddb06f3e91e324fc32d55b304eaa5877cb7622667",
+  "archive_sha256": "2fc0e135e00876d19352ac306257cc4769ebf25d91c6995c010ad279c626988a",
+  "runtime_extracted_checksums": true,
+  "steps": [
+    {
+      "mode": "apply",
+      "active_jars": {
+        "gt-render-34.0.jar": "b9914e88094778f34ffbe6d9a15329b1ae47d1be366f3b06370aa0fad98999b7",
+        "affine-0.9.0.jar": "0d76d4d2de5bf9f7e4626ce9f46f5c7940f5f90a50d7d33aad85312b737a6782"
+      },
+      "passed": true
+    },
+    {
+      "mode": "apply",
+      "active_jars": {
+        "gt-render-34.0.jar": "b9914e88094778f34ffbe6d9a15329b1ae47d1be366f3b06370aa0fad98999b7",
+        "affine-0.9.0.jar": "0d76d4d2de5bf9f7e4626ce9f46f5c7940f5f90a50d7d33aad85312b737a6782"
+      },
+      "passed": true
+    },
+    {
+      "mode": "restore",
+      "active_jars": {
+        "gt-render-34.0.jar": "67c0a9071926e52484f668c9ee5f75428601ae6441d0bf26f84881050e1e3d37",
+        "affine-0.9.0.jar": "3e30c3e6a3ee171526428949885178a1fc99aee04c103fa812613c0becb128a0"
+      },
+      "passed": true
+    },
+    {
+      "mode": "restore",
+      "active_jars": {
+        "gt-render-34.0.jar": "67c0a9071926e52484f668c9ee5f75428601ae6441d0bf26f84881050e1e3d37",
+        "affine-0.9.0.jar": "3e30c3e6a3ee171526428949885178a1fc99aee04c103fa812613c0becb128a0"
+      },
+      "passed": true
+    }
+  ],
+  "no_persistent_mounts": true,
+  "preexisting_container_states_unchanged": true
+}

@@ -1,0 +1,42 @@
+[
+  {
+    "geotools": "34.0",
+    "common_classes_changed_vs_34_5": 22,
+    "changed_classes_other_than_patched_helper": 21,
+    "helper_class_differs": true,
+    "classes_only_in_older": 0,
+    "classes_only_in_34_5": 0
+  },
+  {
+    "geotools": "34.1",
+    "common_classes_changed_vs_34_5": 22,
+    "changed_classes_other_than_patched_helper": 21,
+    "helper_class_differs": true,
+    "classes_only_in_older": 0,
+    "classes_only_in_34_5": 0
+  },
+  {
+    "geotools": "34.2",
+    "common_classes_changed_vs_34_5": 19,
+    "changed_classes_other_than_patched_helper": 19,
+    "helper_class_differs": false,
+    "classes_only_in_older": 0,
+    "classes_only_in_34_5": 0
+  },
+  {
+    "geotools": "34.3",
+    "common_classes_changed_vs_34_5": 18,
+    "changed_classes_other_than_patched_helper": 18,
+    "helper_class_differs": false,
+    "classes_only_in_older": 0,
+    "classes_only_in_34_5": 0
+  },
+  {
+    "geotools": "34.4",
+    "common_classes_changed_vs_34_5": 17,
+    "changed_classes_other_than_patched_helper": 17,
+    "helper_class_differs": false,
+    "classes_only_in_older": 0,
+    "classes_only_in_34_5": 0
+  }
+]

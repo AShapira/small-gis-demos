@@ -1,0 +1,456 @@
+{
+  "checked": "2026-10-20",
+  "architecture": "linux/amd64",
+  "results": [
+    {
+      "tag": "2.28.0",
+      "geotools": "34.0",
+      "imagen": "0.9.0",
+      "existing_bundle_accepted": false,
+      "source_patch_applies_with_exact_context": true,
+      "java_regression": {
+        "original_exit": 1,
+        "patched_exit": 0
+      },
+      "stock_minimal_missing": {
+        "wms": 29022,
+        "gwc": 29022
+      },
+      "patched_gutter0_minimal_missing": {
+        "wms": 0,
+        "gwc": 0
+      },
+      "patched_gutter0_boundary_requests_successful": true,
+      "patched_gutter1": {
+        "wms": {
+          "successful_requests": 1180,
+          "errors": 0,
+          "missing_pixels": 16,
+          "interior_requests": 658,
+          "interior_missing_pixels": 0,
+          "north_up_missing_pixels": 0,
+          "cache_headers": {
+            "null": 1180
+          }
+        },
+        "gwc": {
+          "successful_requests": 1180,
+          "errors": 0,
+          "missing_pixels": 16,
+          "interior_requests": 658,
+          "interior_missing_pixels": 0,
+          "north_up_missing_pixels": 0,
+          "cache_headers": {
+            "MISS": 1180
+          }
+        }
+      },
+      "sharpness": {
+        "wms": {
+          "missing_pixels": 0,
+          "exact_fraction_nonblank": 0.9999542236328125,
+          "mae_valid_nonblank": 0.00732421875,
+          "intermediate_gray_pixels": 0
+        },
+        "gwc": {
+          "missing_pixels": 0,
+          "exact_fraction_nonblank": 0.9999542236328125,
+          "mae_valid_nonblank": 0.00732421875,
+          "intermediate_gray_pixels": 0
+        }
+      },
+      "edge_losses": {
+        "wms": {
+          "affected_tiles": 16,
+          "maximum_missing_pixels_per_tile": 1,
+          "max_depth_source_pixels": 2.0551563937115134
+        },
+        "gwc": {
+          "affected_tiles": 16,
+          "maximum_missing_pixels_per_tile": 1,
+          "max_depth_source_pixels": 2.0551563937115134
+        }
+      },
+      "cache_sequence": [
+        "MISS",
+        "HIT"
+      ],
+      "fixtures_unchanged": true
+    },
+    {
+      "tag": "2.28.1",
+      "geotools": "34.1",
+      "imagen": "0.9.1",
+      "existing_bundle_accepted": false,
+      "source_patch_applies_with_exact_context": true,
+      "java_regression": {
+        "original_exit": 1,
+        "patched_exit": 0
+      },
+      "stock_minimal_missing": {
+        "wms": 29022,
+        "gwc": 29022
+      },
+      "patched_gutter0_minimal_missing": {
+        "wms": 0,
+        "gwc": 0
+      },
+      "patched_gutter0_boundary_requests_successful": true,
+      "patched_gutter1": {
+        "wms": {
+          "successful_requests": 1180,
+          "errors": 0,
+          "missing_pixels": 16,
+          "interior_requests": 658,
+          "interior_missing_pixels": 0,
+          "north_up_missing_pixels": 0,
+          "cache_headers": {
+            "null": 1180
+          }
+        },
+        "gwc": {
+          "successful_requests": 1180,
+          "errors": 0,
+          "missing_pixels": 16,
+          "interior_requests": 658,
+          "interior_missing_pixels": 0,
+          "north_up_missing_pixels": 0,
+          "cache_headers": {
+            "MISS": 1180
+          }
+        }
+      },
+      "sharpness": {
+        "wms": {
+          "missing_pixels": 0,
+          "exact_fraction_nonblank": 0.9999542236328125,
+          "mae_valid_nonblank": 0.00732421875,
+          "intermediate_gray_pixels": 0
+        },
+        "gwc": {
+          "missing_pixels": 0,
+          "exact_fraction_nonblank": 0.9999542236328125,
+          "mae_valid_nonblank": 0.00732421875,
+          "intermediate_gray_pixels": 0
+        }
+      },
+      "edge_losses": {
+        "wms": {
+          "affected_tiles": 16,
+          "maximum_missing_pixels_per_tile": 1,
+          "max_depth_source_pixels": 2.0551563937115134
+        },
+        "gwc": {
+          "affected_tiles": 16,
+          "maximum_missing_pixels_per_tile": 1,
+          "max_depth_source_pixels": 2.0551563937115134
+        }
+      },
+      "cache_sequence": [
+        "MISS",
+        "HIT"
+      ],
+      "fixtures_unchanged": true
+    },
+    {
+      "tag": "2.28.2",
+      "geotools": "34.2",
+      "imagen": "0.9.1",
+      "existing_bundle_accepted": false,
+      "source_patch_applies_with_exact_context": true,
+      "java_regression": {
+        "original_exit": 1,
+        "patched_exit": 0
+      },
+      "stock_minimal_missing": {
+        "wms": 29022,
+        "gwc": 29022
+      },
+      "patched_gutter0_minimal_missing": {
+        "wms": 0,
+        "gwc": 0
+      },
+      "patched_gutter0_boundary_requests_successful": true,
+      "patched_gutter1": {
+        "wms": {
+          "successful_requests": 1180,
+          "errors": 0,
+          "missing_pixels": 16,
+          "interior_requests": 658,
+          "interior_missing_pixels": 0,
+          "north_up_missing_pixels": 0,
+          "cache_headers": {
+            "null": 1180
+          }
+        },
+        "gwc": {
+          "successful_requests": 1180,
+          "errors": 0,
+          "missing_pixels": 16,
+          "interior_requests": 658,
+          "interior_missing_pixels": 0,
+          "north_up_missing_pixels": 0,
+          "cache_headers": {
+            "MISS": 1180
+          }
+        }
+      },
+      "sharpness": {
+        "wms": {
+          "missing_pixels": 0,
+          "exact_fraction_nonblank": 0.9999542236328125,
+          "mae_valid_nonblank": 0.00732421875,
+          "intermediate_gray_pixels": 0
+        },
+        "gwc": {
+          "missing_pixels": 0,
+          "exact_fraction_nonblank": 0.9999542236328125,
+          "mae_valid_nonblank": 0.00732421875,
+          "intermediate_gray_pixels": 0
+        }
+      },
+      "edge_losses": {
+        "wms": {
+          "affected_tiles": 16,
+          "maximum_missing_pixels_per_tile": 1,
+          "max_depth_source_pixels": 2.0551563937115134
+        },
+        "gwc": {
+          "affected_tiles": 16,
+          "maximum_missing_pixels_per_tile": 1,
+          "max_depth_source_pixels": 2.0551563937115134
+        }
+      },
+      "cache_sequence": [
+        "MISS",
+        "HIT"
+      ],
+      "fixtures_unchanged": true
+    },
+    {
+      "tag": "2.28.3",
+      "geotools": "34.3",
+      "imagen": "0.9.1",
+      "existing_bundle_accepted": false,
+      "source_patch_applies_with_exact_context": true,
+      "java_regression": {
+        "original_exit": 1,
+        "patched_exit": 0
+      },
+      "stock_minimal_missing": {
+        "wms": 29022,
+        "gwc": 29022
+      },
+      "patched_gutter0_minimal_missing": {
+        "wms": 0,
+        "gwc": 0
+      },
+      "patched_gutter0_boundary_requests_successful": true,
+      "patched_gutter1": {
+        "wms": {
+          "successful_requests": 1180,
+          "errors": 0,
+          "missing_pixels": 16,
+          "interior_requests": 658,
+          "interior_missing_pixels": 0,
+          "north_up_missing_pixels": 0,
+          "cache_headers": {
+            "null": 1180
+          }
+        },
+        "gwc": {
+          "successful_requests": 1180,
+          "errors": 0,
+          "missing_pixels": 16,
+          "interior_requests": 658,
+          "interior_missing_pixels": 0,
+          "north_up_missing_pixels": 0,
+          "cache_headers": {
+            "MISS": 1180
+          }
+        }
+      },
+      "sharpness": {
+        "wms": {
+          "missing_pixels": 0,
+          "exact_fraction_nonblank": 0.9999542236328125,
+          "mae_valid_nonblank": 0.00732421875,
+          "intermediate_gray_pixels": 0
+        },
+        "gwc": {
+          "missing_pixels": 0,
+          "exact_fraction_nonblank": 0.9999542236328125,
+          "mae_valid_nonblank": 0.00732421875,
+          "intermediate_gray_pixels": 0
+        }
+      },
+      "edge_losses": {
+        "wms": {
+          "affected_tiles": 16,
+          "maximum_missing_pixels_per_tile": 1,
+          "max_depth_source_pixels": 2.0551563937115134
+        },
+        "gwc": {
+          "affected_tiles": 16,
+          "maximum_missing_pixels_per_tile": 1,
+          "max_depth_source_pixels": 2.0551563937115134
+        }
+      },
+      "cache_sequence": [
+        "MISS",
+        "HIT"
+      ],
+      "fixtures_unchanged": true
+    },
+    {
+      "tag": "2.28.4",
+      "geotools": "34.4",
+      "imagen": "0.9.1",
+      "existing_bundle_accepted": false,
+      "source_patch_applies_with_exact_context": true,
+      "java_regression": {
+        "original_exit": 1,
+        "patched_exit": 0
+      },
+      "stock_minimal_missing": {
+        "wms": 29022,
+        "gwc": 29022
+      },
+      "patched_gutter0_minimal_missing": {
+        "wms": 0,
+        "gwc": 0
+      },
+      "patched_gutter0_boundary_requests_successful": true,
+      "patched_gutter1": {
+        "wms": {
+          "successful_requests": 1180,
+          "errors": 0,
+          "missing_pixels": 16,
+          "interior_requests": 658,
+          "interior_missing_pixels": 0,
+          "north_up_missing_pixels": 0,
+          "cache_headers": {
+            "null": 1180
+          }
+        },
+        "gwc": {
+          "successful_requests": 1180,
+          "errors": 0,
+          "missing_pixels": 16,
+          "interior_requests": 658,
+          "interior_missing_pixels": 0,
+          "north_up_missing_pixels": 0,
+          "cache_headers": {
+            "MISS": 1180
+          }
+        }
+      },
+      "sharpness": {
+        "wms": {
+          "missing_pixels": 0,
+          "exact_fraction_nonblank": 0.9999542236328125,
+          "mae_valid_nonblank": 0.00732421875,
+          "intermediate_gray_pixels": 0
+        },
+        "gwc": {
+          "missing_pixels": 0,
+          "exact_fraction_nonblank": 0.9999542236328125,
+          "mae_valid_nonblank": 0.00732421875,
+          "intermediate_gray_pixels": 0
+        }
+      },
+      "edge_losses": {
+        "wms": {
+          "affected_tiles": 16,
+          "maximum_missing_pixels_per_tile": 1,
+          "max_depth_source_pixels": 2.0551563937115134
+        },
+        "gwc": {
+          "affected_tiles": 16,
+          "maximum_missing_pixels_per_tile": 1,
+          "max_depth_source_pixels": 2.0551563937115134
+        }
+      },
+      "cache_sequence": [
+        "MISS",
+        "HIT"
+      ],
+      "fixtures_unchanged": true
+    },
+    {
+      "tag": "2.28.5--v2026.08.27",
+      "geotools": "34.5",
+      "imagen": "0.9.1",
+      "existing_bundle_accepted": true,
+      "source_patch_applies_with_exact_context": true,
+      "java_regression": {
+        "original_exit": 1,
+        "patched_exit": 0
+      },
+      "stock_minimal_missing": {
+        "wms": 29022,
+        "gwc": 29022
+      },
+      "patched_gutter0_minimal_missing": {
+        "wms": 0,
+        "gwc": 0
+      },
+      "patched_gutter0_boundary_requests_successful": true,
+      "patched_gutter1": {
+        "wms": {
+          "successful_requests": 1180,
+          "errors": 0,
+          "missing_pixels": 16,
+          "interior_requests": 658,
+          "interior_missing_pixels": 0,
+          "north_up_missing_pixels": 0,
+          "cache_headers": {
+            "null": 1180
+          }
+        },
+        "gwc": {
+          "successful_requests": 1180,
+          "errors": 0,
+          "missing_pixels": 16,
+          "interior_requests": 658,
+          "interior_missing_pixels": 0,
+          "north_up_missing_pixels": 0,
+          "cache_headers": {
+            "MISS": 1180
+          }
+        }
+      },
+      "sharpness": {
+        "wms": {
+          "missing_pixels": 0,
+          "exact_fraction_nonblank": 0.9999542236328125,
+          "mae_valid_nonblank": 0.00732421875,
+          "intermediate_gray_pixels": 0
+        },
+        "gwc": {
+          "missing_pixels": 0,
+          "exact_fraction_nonblank": 0.9999542236328125,
+          "mae_valid_nonblank": 0.00732421875,
+          "intermediate_gray_pixels": 0
+        }
+      },
+      "edge_losses": {
+        "wms": {
+          "affected_tiles": 16,
+          "maximum_missing_pixels_per_tile": 1,
+          "max_depth_source_pixels": 2.0551563937115134
+        },
+        "gwc": {
+          "affected_tiles": 16,
+          "maximum_missing_pixels_per_tile": 1,
+          "max_depth_source_pixels": 2.0551563937115134
+        }
+      },
+      "cache_sequence": [
+        "MISS",
+        "HIT"
+      ],
+      "fixtures_unchanged": true
+    }
+  ]
+}

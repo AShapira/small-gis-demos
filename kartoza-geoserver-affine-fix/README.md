@@ -13,6 +13,11 @@ different original library hashes, even when the filenames match.
 Read [RESULTS.md](RESULTS.md) for the measured rendering outcome and remaining
 edge limitations. This is an experimental backport, not an upstream release.
 
+See [COMPATIBILITY.md](COMPATIBILITY.md) for checks against other Kartoza 2.28
+releases. The August 2.28.5 build accepts this bundle unchanged; 2.28.0–2.28.4
+require version-matched builds even though the same source correction passes
+the rotated-GeoTIFF tests.
+
 ## Exact supported image and files
 
 Tested Linux amd64 image (Kartoza tag `2.28.5--v2026.10.01`):

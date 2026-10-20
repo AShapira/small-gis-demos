@@ -1,0 +1,5 @@
+# Preserve locked bytes and shell-script line endings on Windows checkouts.
+* -text
+# Unified-diff context includes single-space lines; retain the upstream license.
+source/*.patch -whitespace
+LICENSES/geotools-LICENSE.md -whitespace

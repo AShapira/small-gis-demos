@@ -1,0 +1,1 @@
+PASS: forward, reverse and empty scanline clipping

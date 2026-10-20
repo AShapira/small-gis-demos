@@ -1,0 +1,482 @@
+{
+  "checked": "2026-10-20",
+  "source": "https://hub.docker.com/v2/repositories/kartoza/geoserver/tags?page_size=100&name=2.28",
+  "tags": [
+    {
+      "tag": "2.28.5--v2026.10.01",
+      "index_digest": "sha256:a500f30ec973014be203851290e89996cfccfe4335b1b4345047f64eda05521d",
+      "last_updated": "2026-10-01T18:55:15.913345Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:516247281e1c3c8f3cefdfb699d25e106cdc8f0d6e3e76cc08e570b3c4966db9",
+          "compressed_bytes": 1498843626
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:98e2974d77760a350fcded9e82961f87b3384633c734b3b4982e58c74426441d",
+          "compressed_bytes": 1492846140
+        }
+      ]
+    },
+    {
+      "tag": "2.28.5",
+      "index_digest": "sha256:a500f30ec973014be203851290e89996cfccfe4335b1b4345047f64eda05521d",
+      "last_updated": "2026-10-01T18:55:12.425416Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:516247281e1c3c8f3cefdfb699d25e106cdc8f0d6e3e76cc08e570b3c4966db9",
+          "compressed_bytes": 1498843626
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:98e2974d77760a350fcded9e82961f87b3384633c734b3b4982e58c74426441d",
+          "compressed_bytes": 1492846140
+        }
+      ]
+    },
+    {
+      "tag": "2.28.5--v2026.08.27",
+      "index_digest": "sha256:42a3de3483406ccc8b7a06b7cc7350a0ac6d4bfcf1818ab6652ffe7b6e492ff6",
+      "last_updated": "2026-08-27T02:53:44.925535Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:e7d12e1041975064b5993d97ae795cc72d7beee7abe14bc29d3f9acf177a019e",
+          "compressed_bytes": 1478107072
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:374e30d2331b4cd82418b32bd6208f269c367c61b82b53dd3e918cf5d9b30592",
+          "compressed_bytes": 1472317280
+        }
+      ]
+    },
+    {
+      "tag": "2.28.4--v2026.06.09",
+      "index_digest": "sha256:cd5001cc8f92517e8fd073a57fd2d7acf81f7789b324bd35e6b5a810508fb4e5",
+      "last_updated": "2026-06-09T23:34:54.855222Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:4f1fcedfff6cbe543713eedbd2b75ba5783fa2e467585819a527a1f6114440d7",
+          "compressed_bytes": 1484696591
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:a0a0ee38d302f6cdbb99ae32106cfac0784b282ac4258af0cf34b9f130a16bbe",
+          "compressed_bytes": 1485343803
+        }
+      ]
+    },
+    {
+      "tag": "2.28.4",
+      "index_digest": "sha256:cd5001cc8f92517e8fd073a57fd2d7acf81f7789b324bd35e6b5a810508fb4e5",
+      "last_updated": "2026-06-09T23:34:52.504695Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:4f1fcedfff6cbe543713eedbd2b75ba5783fa2e467585819a527a1f6114440d7",
+          "compressed_bytes": 1484696591
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:a0a0ee38d302f6cdbb99ae32106cfac0784b282ac4258af0cf34b9f130a16bbe",
+          "compressed_bytes": 1485343803
+        }
+      ]
+    },
+    {
+      "tag": "2.28.4--v2026.06.06",
+      "index_digest": "sha256:1c90cdc06dd61148043aae8778a421076df7d702dc3c72e0cd1034f726518069",
+      "last_updated": "2026-06-06T19:41:03.17928Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:4f1fcedfff6cbe543713eedbd2b75ba5783fa2e467585819a527a1f6114440d7",
+          "compressed_bytes": 1484696591
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:e7f4b251866027285c331f29bb2d4c83ad8e30d314985d5c1f64e688d58f95f1",
+          "compressed_bytes": 1479043941
+        }
+      ]
+    },
+    {
+      "tag": "2.28.4--v2026.05.31",
+      "index_digest": "sha256:0260ad85904b5ed10dd013d62f4ebb939684d2610b121ce14af269c35e46851a",
+      "last_updated": "2026-05-31T14:15:40.73714Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:199de5e0f7198394ddf46201460107d5930f4bd00b699666b9fda53cf9e1fc6a",
+          "compressed_bytes": 1485209344
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:32d2daf5088634cad00e52e054f55c6336a7874fce7c503b50e2c9beafbb17af",
+          "compressed_bytes": 1479565967
+        }
+      ]
+    },
+    {
+      "tag": "2.28.4--v2026.05.30",
+      "index_digest": "sha256:7ea572743902fb56ab99818bc4517e5dba9b71f1cb9d83f085275997396e7c39",
+      "last_updated": "2026-05-30T12:39:52.612014Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:ecab0844fb5e5dd6aad550084a9a521fde61e1deabf77205f619b8dd142e33f6",
+          "compressed_bytes": 1485209882
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:928959332aae092958a321c269d960017958a874cc28985b5e6a8e8abc22fef6",
+          "compressed_bytes": 1479565196
+        }
+      ]
+    },
+    {
+      "tag": "2.28.4--v2026.05.29",
+      "index_digest": "sha256:585449a68486a01fe670e2a80c7dd4f436f439fde766efd81bb25bde6b22e783",
+      "last_updated": "2026-05-29T02:16:30.889978Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:b49be0dc17f8c6da6657595f8d892aa54f75e1aee26cfdb84d1e35592b249564",
+          "compressed_bytes": 1489876941
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:f1022a692a8ba2f25681fa390c96d57ab7ef8036c49c4c2998db8898105b52e7",
+          "compressed_bytes": 1484079820
+        }
+      ]
+    },
+    {
+      "tag": "2.28.3--v2026.04.22",
+      "index_digest": "sha256:023476b4c153f9c94d0f8596ac28ad5eea1aac81fc76d7985002d58c0d48c3b3",
+      "last_updated": "2026-04-22T10:08:40.321732Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:5a95019b2c507465249da18b44c2263a297d09e02a7dd4bfc326b40769aa3742",
+          "compressed_bytes": 1484061329
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:5be8d3033c105cc4a99ddf96a8b884a7ab5eee4fdff2f02ae91fd32889c38128",
+          "compressed_bytes": 1478331007
+        }
+      ]
+    },
+    {
+      "tag": "2.28.3",
+      "index_digest": "sha256:023476b4c153f9c94d0f8596ac28ad5eea1aac81fc76d7985002d58c0d48c3b3",
+      "last_updated": "2026-04-22T10:08:36.438815Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:5a95019b2c507465249da18b44c2263a297d09e02a7dd4bfc326b40769aa3742",
+          "compressed_bytes": 1484061329
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:5be8d3033c105cc4a99ddf96a8b884a7ab5eee4fdff2f02ae91fd32889c38128",
+          "compressed_bytes": 1478331007
+        }
+      ]
+    },
+    {
+      "tag": "2.28.3--v2026.04.21",
+      "index_digest": "sha256:b4b1cf1275fce63d8f72a32ed4ea075964619747377b40e66af0be78de596afd",
+      "last_updated": "2026-04-21T08:28:10.160007Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:c59f32fd1f54063af7297a3bb86ead6b878fa281036744c5c0c32543af3c5432",
+          "compressed_bytes": 1484059978
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:35598b62a288023d708041f6f3e78421b65415032cdab1dbc250c730c7cc91f8",
+          "compressed_bytes": 1478244783
+        }
+      ]
+    },
+    {
+      "tag": "2.28.3--v2026.04.18",
+      "index_digest": "sha256:b367d2cb583d12f12dc7e79ba431d51538775c80a109ccd2d147166cfe66d841",
+      "last_updated": "2026-04-18T14:33:45.381487Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:5a3295c91820a391d42b10ac9365c5d46aaf1e0be3a35e600a81177034dbde40",
+          "compressed_bytes": 1480565501
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:426ce225da36d6c44996d02f709e821c435dd98addb221b6b0d521eb6f5dcdf4",
+          "compressed_bytes": 1476130502
+        }
+      ]
+    },
+    {
+      "tag": "2.28.2--v2026.04.18",
+      "index_digest": "sha256:2392747e3c3477836d10b2cb806577b8a62612a58244fbc7d11ed45cdd9ce27c",
+      "last_updated": "2026-04-18T13:40:20.373769Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:794c32850bbaf9d1bc110d19c8fcd761e2f9787dfba12eb3daeb29cc0d2a663c",
+          "compressed_bytes": 1483643223
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:28620e3b0c52da01769c6901e2ca7634ebaff38f0b47ca4fbe5bff6c26ffc4d6",
+          "compressed_bytes": 1477823523
+        }
+      ]
+    },
+    {
+      "tag": "2.28.2",
+      "index_digest": "sha256:2392747e3c3477836d10b2cb806577b8a62612a58244fbc7d11ed45cdd9ce27c",
+      "last_updated": "2026-04-18T13:40:16.718042Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:794c32850bbaf9d1bc110d19c8fcd761e2f9787dfba12eb3daeb29cc0d2a663c",
+          "compressed_bytes": 1483643223
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:28620e3b0c52da01769c6901e2ca7634ebaff38f0b47ca4fbe5bff6c26ffc4d6",
+          "compressed_bytes": 1477823523
+        }
+      ]
+    },
+    {
+      "tag": "2.28.2--v2026.04.04",
+      "index_digest": "sha256:f7ac2d8ca4825d5d9865f03fa9a9c726d1893c7e50e0798e09537d85360b55a0",
+      "last_updated": "2026-04-04T07:32:20.481911Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:bbcd4e8af57d89a6dbbd24aca036571d64126977a21c281506935f23b23daf57",
+          "compressed_bytes": 1481285155
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:fdbe601b0c5e0348c9de52bf0b1207505b7668355da0e4ea67916ee35f975eb4",
+          "compressed_bytes": 1475672082
+        }
+      ]
+    },
+    {
+      "tag": "2.28.3--v2026.04.03",
+      "index_digest": "sha256:44d3eae996c98729d79628ffdb242608343e0165222ea51413a0f6e5238c5c12",
+      "last_updated": "2026-04-03T13:04:15.114339Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:2fac4728b780e054ecc236204882770667f47a66a5635f8c9d6919de8da0fa15",
+          "compressed_bytes": 1479040761
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:6d67a371dff9e0643412258903a560c9275bfbd7528a9c83887a5e96ac7188c0",
+          "compressed_bytes": 1473977628
+        }
+      ]
+    },
+    {
+      "tag": "2.28.2--v2026.03.14",
+      "index_digest": "sha256:f617a97fa67f0e43bd7abaa0e20802540e3985d97c178a0b93cb1a7033dfa8e6",
+      "last_updated": "2026-03-14T23:26:21.802136Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:31f09802ba43dc349a8e8f25a6f08572ec05ba76b9866ab2eda6d5f714e803e9",
+          "compressed_bytes": 1504452029
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:a5e591a803b37e62422c681fe341fa1e225381ea25331d6c66f82907b9105f6a",
+          "compressed_bytes": 1504417018
+        }
+      ]
+    },
+    {
+      "tag": "2.28.2--v2026.01.31",
+      "index_digest": "sha256:ad465f7e2aa25caee70500c0a85e10440598bf046295a348707da1103f16cec1",
+      "last_updated": "2026-01-31T17:43:52.065776Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:6fb2b598a4eefd6a2f49d3b56fa6e10d539144caded751537ce9a75d84fecbaf",
+          "compressed_bytes": 1397784519
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:4cbe2e230ba6f39845db5aff4a75e9f0813863b000a0b93f5a652f7b50f205d9",
+          "compressed_bytes": 1394682255
+        }
+      ]
+    },
+    {
+      "tag": "2.28.2--v2026.01.27",
+      "index_digest": "sha256:d02da6b708d2496c77740c8689fcb0f89c300f917b1fcd67e428f850633aaae4",
+      "last_updated": "2026-01-27T19:21:54.408427Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:19a836549732dc2470c09ff46636d51027c7825b980ce13889d37f6af9c18f7d",
+          "compressed_bytes": 1397784519
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:e23f058de4a7f705c59c04bf61239bca1fe5eea4cbb592749a81dd5efa657d09",
+          "compressed_bytes": 1394680097
+        }
+      ]
+    },
+    {
+      "tag": "2.28.1--v2026.01.26",
+      "index_digest": "sha256:185a18a8908ae823d33b564d028c12c0625510ba7cd3dd425319f071c3044b50",
+      "last_updated": "2026-01-26T23:36:40.946365Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:a641a74ff642cc8f18681b33d4c864e89538d3da3f1a679ae5b00af0a0ca6a2b",
+          "compressed_bytes": 1404112540
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:045d04be51307f715c49ae9119270a3a2211919b29e26fe5d71c0aa71188c3f2",
+          "compressed_bytes": 1398286833
+        }
+      ]
+    },
+    {
+      "tag": "2.28.1",
+      "index_digest": "sha256:185a18a8908ae823d33b564d028c12c0625510ba7cd3dd425319f071c3044b50",
+      "last_updated": "2026-01-26T23:36:38.449513Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:a641a74ff642cc8f18681b33d4c864e89538d3da3f1a679ae5b00af0a0ca6a2b",
+          "compressed_bytes": 1404112540
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:045d04be51307f715c49ae9119270a3a2211919b29e26fe5d71c0aa71188c3f2",
+          "compressed_bytes": 1398286833
+        }
+      ]
+    },
+    {
+      "tag": "2.28.0--v2026.01.26",
+      "index_digest": "sha256:59cd5984bd4e6073dc07432ddb06f3e91e324fc32d55b304eaa5877cb7622667",
+      "last_updated": "2026-01-26T17:54:52.817083Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:f8960f8f3be5f7c41bc62e292513aff267c00cbe39fb900426ba93c7c4bc2d15",
+          "compressed_bytes": 1400402006
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:172eab7130a6cf1d740bd7ddb567177508f5edbc0aab0342b5a9a2fd368194b8",
+          "compressed_bytes": 1398188460
+        }
+      ]
+    },
+    {
+      "tag": "2.28.0",
+      "index_digest": "sha256:59cd5984bd4e6073dc07432ddb06f3e91e324fc32d55b304eaa5877cb7622667",
+      "last_updated": "2026-01-26T17:54:50.440538Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:f8960f8f3be5f7c41bc62e292513aff267c00cbe39fb900426ba93c7c4bc2d15",
+          "compressed_bytes": 1400402006
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:172eab7130a6cf1d740bd7ddb567177508f5edbc0aab0342b5a9a2fd368194b8",
+          "compressed_bytes": 1398188460
+        }
+      ]
+    },
+    {
+      "tag": "2.28.0--v2026.01.25",
+      "index_digest": "sha256:e3c1142169be58543e2cce1219671fc004a617868fa68fec00c0016bf0fe3480",
+      "last_updated": "2026-01-25T15:09:17.236336Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:f8960f8f3be5f7c41bc62e292513aff267c00cbe39fb900426ba93c7c4bc2d15",
+          "compressed_bytes": 1400402006
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:65f64247dd3fd1ad4812504d205698cd15f2b362e07633e0c6c07849bd2468a8",
+          "compressed_bytes": 1398188787
+        }
+      ]
+    },
+    {
+      "tag": "2.28.0--v2025.12.08",
+      "index_digest": "sha256:505b3904cb47075aef16d13009b21fd06ac8002b322bb27a0d5efe22cec9ce37",
+      "last_updated": "2025-12-08T14:34:14.559021Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:32770f8ffbd0405ed32b1974fe0deb63e00941a76f514c502c1f7db67312f2a9",
+          "compressed_bytes": 1374539268
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:3a7f85e6cdd4e69654e553f3a601b66b2beb64a73cecf8f9592056eb3f7b804d",
+          "compressed_bytes": 1368675328
+        }
+      ]
+    },
+    {
+      "tag": "2.28.0--v2025.11.24",
+      "index_digest": "sha256:bb08179226e3774769ab715593d3dafa6c96425c3914c18a15a497897150669c",
+      "last_updated": "2025-11-24T17:08:16.653538Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:8debab348668ee67d780cafcb4d9583f41e08994611a3c61f2bdbcd1bdc29565",
+          "compressed_bytes": 1371661337
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:e30436fbfdeeabaf6bbe817cc29c45e58ca70b609ea99957425e05a48551b48c",
+          "compressed_bytes": 1368333393
+        }
+      ]
+    },
+    {
+      "tag": "2.28.0--v2025.11.05",
+      "index_digest": "sha256:c884c7a4392201da70503ec04908eaf8773e62e3096dc169507b76e12009ef1b",
+      "last_updated": "2025-11-05T07:03:02.877265Z",
+      "images": [
+        {
+          "architecture": "amd64",
+          "digest": "sha256:d55d7a88114f15dfe710a34e0621e5d0b4d7625ba6d9d77dac58759e06525602",
+          "compressed_bytes": 1368114777
+        },
+        {
+          "architecture": "arm64",
+          "digest": "sha256:dcba21cfebd5075e0eea935f80fd102d4e6bde40d08b1b9d197fb7e8677a2573",
+          "compressed_bytes": 1362244338
+        }
+      ]
+    }
+  ]
+}

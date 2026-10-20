@@ -1,0 +1,32 @@
+--- GridCoverageReaderHelper.java.original
++++ GridCoverageReaderHelper.java
+@@ -94,6 +94,8 @@
+ 
+     private boolean sameCRS;
+ 
++    private boolean preserveRotatedGridPixels;
++
+     private int padding;
+ 
+     public GridCoverageReaderHelper(
+@@ -125,6 +127,10 @@
+         // we are going to read
+ 
+         sameCRS = CRS.isEquivalent(mapExtent.getCoordinateReferenceSystem(), reader.getCoordinateReferenceSystem());
++        MathTransform sourceGridToCRS = reader.getOriginalGridToWorld(PixelInCell.CELL_CENTER);
++        preserveRotatedGridPixels = sameCRS && interpolation instanceof InterpolationNearest
++                && sourceGridToCRS instanceof java.awt.geom.AffineTransform at
++                && (at.getShearX() != 0 || at.getShearY() != 0);
+         paddingRequired = (!sameCRS || !(interpolation instanceof InterpolationNearest) || isMultiCRSReader(reader))
+                 && !isReprojectingReader(reader);
+         if (paddingRequired) {
+@@ -439,6 +445,9 @@
+     }
+ 
+     private GridCoverage2D cropCoverage(GridCoverage2D coverage, ReferencedEnvelope cropEnvelope) {
++        // Preserve rotated source pixels for nearest-neighbour enlargement.
++        // The reader has already selected a bounded source window.
++        if (preserveRotatedGridPixels) return coverage;
+         if (isNotEmpty(cropEnvelope)) {
+             final ParameterValueGroup param =
+                     PROCESSOR.getOperation("CoverageCrop").getParameters();
