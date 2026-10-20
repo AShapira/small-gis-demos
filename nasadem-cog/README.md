@@ -199,6 +199,9 @@ the merger itself never downloads data.
 See the [validation report](validation-report.md) for the native Windows tests,
 the downloaded 160-tile subset, two completed 10° COGs, and exhaustive results.
 
+The [local S3 ImageMosaic test](s3-imagemosaic/README.md) reuses those two COGs
+with Kartoza GeoServer 2.28.0, MinIO, and a PostGIS index.
+
 References: [GDAL COG driver](https://gdal.org/en/stable/drivers/raster/cog.html),
 [GDAL VRT format](https://gdal.org/en/stable/drivers/raster/vrt.html),
 [OpenTopography bulk access](https://www.opentopography.org/blog/programmatic-access-cloud-optimized-geotiff-cog-global-datasets).

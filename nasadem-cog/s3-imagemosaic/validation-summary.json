@@ -1,0 +1,196 @@
+{
+  "status": "passed",
+  "images": {
+    "geoserver": "docker.io/kartoza/geoserver@sha256:59cd5984bd4e6073dc07432ddb06f3e91e324fc32d55b304eaa5877cb7622667",
+    "minio": "docker.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e",
+    "oracle": "ghcr.io/osgeo/gdal@sha256:1e450ff0e12140dc72c2ad6ff3978c96ea910187ec3ec4281a814f470606412c",
+    "postgis": "docker.io/postgis/postgis@sha256:01a6a70e41e6c4467c8f55f6063555ed72db2d6662cd0d571040d42eadaeb6f6"
+  },
+  "source_files": {
+    "NASADEM_N30E020_N39E029.tif": {
+      "bytes": 353359322,
+      "sha256": "6cc57ea2ed7bad66f63f149828cc06cbbcf7943c758c2f05a9e487b7d0481a5d"
+    },
+    "NASADEM_N30E030_N39E039.tif": {
+      "bytes": 634711808,
+      "sha256": "50f10b0e62ef6f4aa93efb7c614966bf1f545e74018feced059247c70bbf3e41"
+    }
+  },
+  "resources": {
+    "geoserver_cpus": 2,
+    "geoserver_memory": "3g",
+    "java_max_heap": "2G"
+  },
+  "version": {
+    "about": {
+      "resource": [
+        {
+          "@name": "GeoServer",
+          "Build-Timestamp": "13-Oct-2025 05:02",
+          "Version": "2.28.0",
+          "Git-Revision": "16064e8d72a06ac36b373d8cd7cf328bde2be7cd"
+        },
+        {
+          "@name": "GeoTools",
+          "Build-Timestamp": "12-Oct-2025 00:03",
+          "Version": 34,
+          "Git-Revision": "b07b3543dba73763574d6e1749dfd72e4b14fe90"
+        },
+        {
+          "@name": "GeoWebCache",
+          "Version": "1.28.0",
+          "Git-Revision": "1.28.x/466f15729dd05978d0ac689f1ffaea9223d49d6f"
+        }
+      ]
+    }
+  },
+  "plugin_zip_sha256": "31e8980868cc1bc730f1766479c69b0c6a0f83d38f81a7a5b793946b8de49357",
+  "cog_libraries": [
+    "imageio-ext-cog-streams-2.0.0.jar",
+    "imageio-ext-cog-reader-2.0.0.jar",
+    "imageio-ext-cog-commons-2.0.0.jar",
+    "gs-cog-core-2.28-SNAPSHOT.jar",
+    "imageio-ext-cog-rangereader-s3-2.0.1.jar",
+    "gs-cog-s3-2.28-SNAPSHOT.jar"
+  ],
+  "granule_locations": [
+    "s3://nasadem-test/cogs/NASADEM_N30E020_N39E029.tif",
+    "s3://nasadem-test/cogs/NASADEM_N30E030_N39E039.tif"
+  ],
+  "wcs": [
+    {
+      "case": "west",
+      "pixels": 16384,
+      "exact_values": true,
+      "exact_georeferencing": true,
+      "int16_epsg4326_nodata_verified": true,
+      "valid": 16384
+    },
+    {
+      "case": "east",
+      "pixels": 16384,
+      "exact_values": true,
+      "exact_georeferencing": true,
+      "int16_epsg4326_nodata_verified": true,
+      "valid": 16384
+    },
+    {
+      "case": "seam",
+      "pixels": 16384,
+      "exact_values": true,
+      "exact_georeferencing": true,
+      "int16_epsg4326_nodata_verified": true,
+      "valid": 16384
+    },
+    {
+      "case": "ocean",
+      "pixels": 16384,
+      "exact_values": true,
+      "exact_georeferencing": true,
+      "int16_epsg4326_nodata_verified": true,
+      "valid": 4160
+    }
+  ],
+  "wms": [
+    {
+      "view": "west",
+      "bbox": [
+        22,
+        36,
+        26,
+        40
+      ],
+      "size": [
+        512,
+        512
+      ],
+      "seconds": [
+        0.4417,
+        0.1262,
+        0.1616,
+        0.1573
+      ],
+      "first_view_seconds": 0.4417,
+      "repeat_median_seconds": 0.1573
+    },
+    {
+      "view": "east",
+      "bbox": [
+        34,
+        30,
+        36,
+        34
+      ],
+      "size": [
+        512,
+        512
+      ],
+      "seconds": [
+        0.1777,
+        0.1069,
+        0.1314,
+        0.0891
+      ],
+      "first_view_seconds": 0.1777,
+      "repeat_median_seconds": 0.1069
+    },
+    {
+      "view": "seam",
+      "bbox": [
+        29.5,
+        30,
+        30.5,
+        31
+      ],
+      "size": [
+        512,
+        512
+      ],
+      "seconds": [
+        0.0924,
+        0.0877,
+        0.1471,
+        0.1259
+      ],
+      "first_view_seconds": 0.0924,
+      "repeat_median_seconds": 0.1259
+    }
+  ],
+  "restart_preserved_mosaic": true,
+  "source_files_unchanged": true,
+  "range_reads": {
+    "successful": 340,
+    "by_object": {
+      "cogs/NASADEM_N30E020_N39E029.tif": 166,
+      "cogs/NASADEM_N30E030_N39E039.tif": 174
+    },
+    "bytes": 10434258,
+    "all_data_gets_ranged_206": true,
+    "full_object_gets_from_geoserver": 0,
+    "optional_external_overview_404s": 14
+  },
+  "date": "2026-10-20",
+  "run_id": "nasadem-s3-1b1ed222",
+  "no_local_source_mounts": true,
+  "all_test_containers_stopped": true,
+  "anonymous_reads_denied": true,
+  "stored_object_sha256_verified": true,
+  "post_restart_wms_seconds": 1.772,
+  "python": "3.12.13",
+  "python_packages": {
+    "boto3": "1.43.115",
+    "botocore": "1.43.115",
+    "numpy": "2.5.4",
+    "Pillow": "13.0.0",
+    "requests": "2.32.4"
+  },
+  "test_file_sha256": {
+    "elevation.sld": "199f8676a8b15be87d69c0233032fdcf6aaef8e17663d1e257155fcaa12dad7f",
+    "audit_sink.py": "2605d1897c1da7d46b9c7a7875a742ba20015f3f00c82df1237a3d42d2ca302c",
+    "run_test.py": "9d8be2927bca0c418ef0bc917dcadb0eb48bf52ed08fc5e2ffc6270e97dafaa0",
+    "source_oracle.py": "eb325d8b45b0604d105d7d20b08e580b01e06d4a2abfc0e6a821175fbb2752a3",
+    "indexer.properties": "678b0cab730502d44d78bc5095987fa9666beaf6152a5cdea48ce6d291a5747d"
+  },
+  "raw_result_sha256": "545878b452d15f021e483a0029da641d716d0ba54279cc14764b4a629f0502b5",
+  "audit_validation": "GeoServer SDK requests checked from retained MinIO audit records; expected optional .ovr 404s reported separately."
+}
