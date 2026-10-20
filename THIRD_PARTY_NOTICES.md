@@ -1,5 +1,11 @@
 # Third-party software
 
+The [MIT License](LICENSE) covers original project work. The components below
+retain their own licenses; see [license scope](LICENSING.md).
+
+- The Kartoza 2.28.0 affine bundle includes modified GeoTools 34.0 (LGPL-2.1)
+  and ImageN affine 0.9.0 (Apache-2.0), with matching sources and license texts.
+  See [its notices](kartoza-geoserver-2.28.0-affine-fix/NOTICE.md).
 - The Kartoza 2.28.5 affine bundle includes modified GeoTools 34.5 and ImageN
   0.9.1 JARs, full matching source archives, patches and upstream licenses under
   `kartoza-geoserver-affine-fix/source/`. The modified GeoTools code is LGPL-2.1;

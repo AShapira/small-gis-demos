@@ -48,3 +48,7 @@ read-padding code differs between these versions.
 
 The runtime archive includes license texts and modification notices. Curated
 rendering evidence and the Java regression are included here for review.
+
+Original build/test scripts and documentation use the MIT license reproduced in
+`project-MIT.txt`. GeoTools sources and modifications retain LGPL-2.1; ImageN
+sources and modifications retain Apache-2.0.

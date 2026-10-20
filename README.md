@@ -69,3 +69,10 @@ Public validation summaries retain test outcomes with local paths redacted.
 
 Release: **0.9.0**. See [CHANGELOG.md](CHANGELOG.md) and
 [third-party notices](THIRD_PARTY_NOTICES.md).
+
+## License
+
+Original project code and documentation are available under the [MIT License](LICENSE).
+Third-party components and their modifications retain their own licenses,
+including LGPL-2.1 for GeoTools and Apache-2.0 for ImageN. See
+[license scope](LICENSING.md) and [third-party notices](THIRD_PARTY_NOTICES.md).

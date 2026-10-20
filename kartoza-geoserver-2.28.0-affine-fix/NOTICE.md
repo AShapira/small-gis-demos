@@ -3,6 +3,11 @@
 This is an independently prepared experimental patch, not an official release
 or endorsement by Kartoza, GeoServer, GeoTools or Eclipse ImageN.
 
+Original installer, build and test scripts and original documentation are
+covered by the MIT license in `LICENSE`. The following upstream code, its
+modifications, source archives and compiled JARs retain their component licenses;
+they are not relicensed under MIT.
+
 - `gt-render-34.0.jar` contains GeoTools 34.0, under the GNU Lesser General Public
   License 2.1. See `LICENSES/geotools-LICENSE.md`.
 - `affine-0.9.0.jar` contains Eclipse ImageN affine 0.9.0, under Apache License

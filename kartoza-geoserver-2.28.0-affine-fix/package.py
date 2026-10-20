@@ -8,7 +8,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parent
 NAME = ROOT.name
 RUNTIME = (
-    'README.md', 'VALIDATION.md', 'NOTICE.md', 'compose.override.yaml',
+    'README.md', 'VALIDATION.md', 'NOTICE.md', 'LICENSE', 'compose.override.yaml',
     'apply-affine-fix.sh', 'start-with-affine-fix.sh', 'jars.sha256.tsv',
     'jars/gt-render-34.0.jar', 'jars/affine-0.9.0.jar',
     'LICENSES/geotools-LICENSE.md', 'LICENSES/imagen-LICENSE.md',
@@ -16,6 +16,7 @@ RUNTIME = (
 SOURCES = (
     'build.py', 'build-lock.json', 'package.py',
     'source/README.md',
+    'source/project-MIT.txt',
     'source/GridCoverageReaderHelper.java',
     'source/GridCoverageReaderHelper.java.original',
     'source/AffineOpImage.java', 'source/AffineOpImage.java.original',

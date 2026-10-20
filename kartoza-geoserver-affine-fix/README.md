@@ -239,6 +239,10 @@ to regenerate `SHA256SUMS` and the transfer ZIP from the public bundle files.
 
 ## Source and licenses
 
+Original installer, build and test scripts and original documentation use the
+[MIT License](LICENSE). Upstream source, modifications to it, source archives and
+compiled JARs retain the component licenses described below.
+
 See [source/README.md](source/README.md). The modified GeoTools source retains
 LGPL-2.1 licensing; the ImageN affine source retains Apache-2.0 licensing. Full
 upstream source archives and license texts accompany the diffs. Neither the
