@@ -119,10 +119,17 @@ class MergerTests(unittest.TestCase):
         self.assertEqual(args.block_size, 10)
         self.assertFalse(args.verify)
         self.assertFalse(args.build_overviews)
+        self.assertEqual(args.disk_space_policy, "warn")
         with contextlib.redirect_stdout(io.StringIO()) as out:
             self.assertEqual(merger.run(self.args("--dry-run")), 0)
         report = json.loads(out.getvalue())
         self.assertEqual(report["blocks"][0]["dimensions"], [21, 21])
+        self.assertEqual(report["disk_space_policy"], "warn")
+        estimate = report["blocks"][0]
+        self.assertEqual(estimate["storage_estimate_method"], "source-compression-v1")
+        self.assertGreater(estimate["estimated_output_bytes"], 0)
+        self.assertGreater(estimate["storage_reservation_bytes"],
+                           estimate["estimated_output_bytes"] + estimate["estimated_temporary_bytes"])
         self.assertFalse(self.output.exists())
 
     def test_legacy_block_sizes_quadrants_and_zero(self):
@@ -501,16 +508,101 @@ class MergerTests(unittest.TestCase):
         with self.assertRaisesRegex(merger.InputError, "Unrelated"):
             self.run_merge()
 
-    def test_disk_space_failure_checkpoints(self):
+    def test_strict_disk_space_failure_checkpoints(self):
         self.tile()
         self.write_vrt()
         usage = type("Usage", (), {"free": 0})()
         with patch.object(merger.shutil, "disk_usage", return_value=usage):
             with self.assertRaisesRegex(merger.RunError, "Insufficient disk"):
-                self.run_merge()
+                self.run_merge("--disk-space-policy", "error")
         self.assertEqual(self.state()["status"], "failed")
         self.assertIn("Insufficient disk", (self.output / "errors.log").read_text())
         self.assertFalse(list(self.output.glob("*.tif")))
+
+    def test_low_space_warns_continues_and_allows_strict_resume(self):
+        self.tile(0, 0)
+        self.tile(10, 0)
+        self.write_vrt()
+        usage = SimpleNamespace(free=0)
+        with patch.object(merger.shutil, "disk_usage", return_value=usage):
+            self.assertEqual(self.run_merge("--verify"), 0)
+            paths = sorted(self.output.glob("*.tif"))
+            self.assertEqual(len(paths), 2)
+            before = [(p.stat().st_mtime_ns, p.read_bytes()) for p in paths]
+            self.assertEqual(self.state()["disk_space_policy"], "warn")
+            self.assertEqual(self.state()["status"], "complete")
+            self.assertEqual((self.output / "run.log").read_text().count("WARNING:"), 2)
+            self.assertEqual((self.output / "errors.log").read_text(), "")
+            # Policy is operational, so changing it does not invalidate outputs.
+            self.assertEqual(self.run_merge("--verify", "--disk-space-policy", "error"), 0)
+            self.assertEqual(self.state()["disk_space_policy"], "error")
+            self.assertEqual([(p.stat().st_mtime_ns, p.read_bytes()) for p in paths], before)
+            self.assertTrue(all(b["action"] == "skipped" for b in self.state()["blocks"].values()))
+
+    def test_disk_space_query_failure_obeys_policy(self):
+        self.tile()
+        self.write_vrt()
+        with patch.object(merger.shutil, "disk_usage", side_effect=OSError("free-space query unavailable")):
+            self.assertEqual(self.run_merge(), 0)
+            self.assertIn("WARNING: Cannot check disk free space", (self.output / "run.log").read_text())
+            self.output = self.root / "strict-output"
+            with self.assertRaisesRegex(merger.RunError, "Cannot check disk free space"):
+                self.run_merge("--disk-space-policy", "error")
+            self.assertEqual(self.state()["status"], "failed")
+
+    def test_actual_write_failure_still_fails_in_warn_mode(self):
+        self.tile()
+        self.write_vrt()
+        with patch.object(merger.shutil, "disk_usage", return_value=SimpleNamespace(free=0)), (
+                patch.object(merger.gdal, "Translate", side_effect=OSError(28, "No space left on device"))):
+            self.assertEqual(self.run_merge(), 1)
+        self.assertEqual(self.state()["status"], "failed")
+        self.assertFalse(list(self.output.glob("*.tif")))
+        self.assertIn("No space left on device", (self.output / "errors.log").read_text())
+
+    def test_storage_estimate_deduplicates_and_weights_source_windows(self):
+        self.tile()
+        root = self.write_vrt()
+        inv = merger.read_inventory(self.vrt)
+        block, = merger.plan_blocks(inv, 10, 1)
+        original = merger.storage_estimate(block, False)
+        self.assertEqual(original["estimated_source_base_bytes"], inv.sources[0].base_bytes)
+        node = root.find(".//ComplexSource")
+        root.find("VRTRasterBand").append(ET.fromstring(ET.tostring(node)))
+        ET.ElementTree(root).write(self.vrt)
+        inv = merger.read_inventory(self.vrt)
+        block, = merger.plan_blocks(inv, 10, 1)
+        self.assertEqual(merger.storage_estimate(block, False), original)
+        # Keep only the eastern two columns of the same source, in both references.
+        for node in root.findall(".//ComplexSource"):
+            node.find("SrcRect").set("xOff", "1")
+            node.find("SrcRect").set("xSize", "2")
+            node.find("DstRect").set("xOff", "361")
+            node.find("DstRect").set("xSize", "2")
+        ET.ElementTree(root).write(self.vrt)
+        inv = merger.read_inventory(self.vrt)
+        block, = merger.plan_blocks(inv, 10, 1)
+        partial = merger.storage_estimate(block, False)["estimated_source_base_bytes"]
+        self.assertAlmostEqual(partial / original["estimated_source_base_bytes"], 2/3, delta=.01)
+
+    def test_source_storage_estimate_accounts_for_existing_overviews(self):
+        self.n = 64
+        path = self.tile()
+        ds = gdal.Open(str(path), gdal.GA_Update)
+        ds.BuildOverviews("NEAREST", [2, 4])
+        merger.close(ds)
+        ds = None
+        before = path.stat().st_mtime_ns, path.read_bytes()
+        self.write_vrt()
+        inv = merger.read_inventory(self.vrt)
+        self.assertGreater(inv.sources[0].base_bytes, 0)
+        self.assertLess(inv.sources[0].base_bytes, path.stat().st_size)
+        block, = merger.plan_blocks(inv, 10, 1)
+        base = merger.storage_estimate(block, False)
+        pyramid = merger.storage_estimate(block, True)
+        self.assertGreater(pyramid["estimated_output_bytes"], base["estimated_output_bytes"])
+        self.assertGreater(pyramid["estimated_temporary_bytes"], base["estimated_temporary_bytes"])
+        self.assertEqual((path.stat().st_mtime_ns, path.read_bytes()), before)
 
     def test_source_change_during_conversion_prevents_publication(self):
         path = self.tile()
@@ -643,6 +735,10 @@ class MergerTests(unittest.TestCase):
                 self.assertEqual(block.bounds, bounds)
                 west, south, east, north = bounds
                 self.assertEqual(block.window[2:], ((east-west)*3600+1, (north-south)*3600+1))
+                if size == 360:
+                    # One source plus compressed NoData padding, not a raw global raster.
+                    estimate = merger.storage_estimate(block, False)
+                    self.assertLess(estimate["estimated_output_bytes"], 10 * 1024**3)
 
     def test_old_source_overviews_are_not_used_for_new_averages(self):
         self.n = 64

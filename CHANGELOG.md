@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Estimate NASADEM storage from compressed source sizes, existing overviews,
+  compressed NoData coverage, and temporary COG work instead of three raw copies.
+  Warn and continue by default; make stopping optional with `--disk-space-policy error`.
+
 - Consolidate the GeoTIFF compression benchmark under `geotiff-compression/`,
   including its package, configs, scripts, tests, documentation and evidence.
   Update CI, installation instructions and cross-demo references.

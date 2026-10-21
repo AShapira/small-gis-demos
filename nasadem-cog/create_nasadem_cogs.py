@@ -30,6 +30,8 @@ except ImportError as exc:
 SCHEMA = 1
 EDGE = 512
 HEADROOM = 1024 ** 3
+EMPTY_TILE_BYTES = 2048  # Approximate DEFLATE size of a constant 512 x 512 Int16 tile.
+STORAGE_MARGIN = 1.10
 TOLERANCE = 1e-5  # Pixels, including longitudes far from the VRT origin.
 
 
@@ -129,6 +131,7 @@ class Source:
     skip_nodata: bool
     use_mask: bool
     files: list
+    base_bytes: int
 
     @property
     def footprint(self):
@@ -290,9 +293,15 @@ def read_inventory(vrt_file, filename_filter=None, cancel=None, progress=None):
                     raise InputError(f"Inconsistent band metadata: {source_path}")
                 template = properties
                 files = [stamp(Path(p).resolve()) for p in ds.GetFileList()]
+                raster_paths = {source_path, Path(str(source_path) + ".ovr")}
+                raster_bytes = sum(f["size"] for f in files if Path(f["path"]) in raster_paths)
+                pyramid_pixels = size * size + sum(
+                    b.GetOverview(i).XSize * b.GetOverview(i).YSize
+                    for i in range(b.GetOverviewCount()))
+                base_bytes = math.ceil(raster_bytes * size * size / pyramid_pixels)
                 records.extend(files)
                 sources.append(Source(source_path, src, dst, gx, gy, west, south, size,
-                                      node.tag, skip_nodata, use_mask, files))
+                                      node.tag, skip_nodata, use_mask, files, base_bytes))
         except (RuntimeError, OSError, RunError) as exc:
             raise InputError(f"Unreadable source {source_path}: {exc}") from exc
     if not sources:
@@ -543,13 +552,43 @@ def verify_output(path, inv, block, overviews, exhaustive, cancel, progress=lamb
                 "overview_dimensions": actual_dims, "warnings": warnings}
 
 
-def reservation(block, overviews):
+def storage_estimate(block, overviews):
+    """Estimate compressed output and CreateCopy scratch space without reading pixels."""
     width, height = block.window[2:]
     pixels = width * height
-    if overviews:
-        pixels += sum(w * h for w, h in overview_dimensions(width, height))
-    # Conservative allowance for final output, GDAL intermediates and codec overhead.
-    return 3 * pixels * 2
+    source_areas, source_info, covered_areas, seen = {}, {}, {}, set()
+    for source in block.sources:
+        common = intersection(block.window, source.dst)
+        key = source.path, common
+        if common is None or key in seen:
+            continue
+        seen.add(key)
+        area = common[2] * common[3]
+        source_areas[source.path] = source_areas.get(source.path, 0) + area
+        source_info[source.path] = source.base_bytes, source.size ** 2
+        cell = source.west, source.south
+        covered_areas[cell] = min(source.size ** 2, covered_areas.get(cell, 0) + area)
+    source_bytes = math.ceil(sum(source_info[path][0] * min(area, source_info[path][1])
+                                 / source_info[path][1] for path, area in source_areas.items()))
+    empty_pixels = max(0, pixels - sum(covered_areas.values()))
+    tiles = math.ceil(width / EDGE) * math.ceil(height / EDGE)
+    # Empty coverage compresses to small constant tiles, not raw Int16 pixels.
+    base_bytes = (source_bytes + math.ceil(empty_pixels / (EDGE * EDGE)) * EMPTY_TILE_BYTES
+                  + tiles * 16 + 65536)
+    dims = overview_dimensions(width, height) if overviews else []
+    pyramid_pixels = pixels + sum(w * h for w, h in dims)
+    output_bytes = math.ceil(base_bytes * pyramid_pixels / pixels)
+    # Translate uses COG CreateCopy: only new overviews need a temporary raster.
+    temporary_bytes = (math.ceil(output_bytes / 3) if dims else 0) + max(65536, len(seen) * 1024)
+    return {"storage_estimate_method": "source-compression-v1",
+            "estimated_source_base_bytes": source_bytes,
+            "estimated_output_bytes": output_bytes,
+            "estimated_temporary_bytes": temporary_bytes,
+            "storage_reservation_bytes": math.ceil((output_bytes + temporary_bytes) * STORAGE_MARGIN)}
+
+
+def reservation(block, overviews):
+    return storage_estimate(block, overviews)["storage_reservation_bytes"]
 
 
 @contextmanager
@@ -726,6 +765,7 @@ def prepare_state(output, inv, blocks, args):
     if unexpected:
         raise InputError(f"Unrelated TIFFs in output directory: {unexpected}")
     state.update(status="running", workers=args.workers, verify=args.verify,
+                 disk_space_policy=args.disk_space_policy,
                  started_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
                  runtime={"python": sys.version.split()[0], "gdal": gdal.VersionInfo("RELEASE_NAME")})
     return state
@@ -746,6 +786,9 @@ def worker_pool(count, cancel):
 
 def execute(inv, blocks, output, args, cancel):
     state = prepare_state(output, inv, blocks, args)
+    estimates = {block.name: storage_estimate(block, args.build_overviews) for block in blocks}
+    for name, estimate in estimates.items():
+        state["blocks"][name].update(estimate)
     progress = Progress()
     with (output / "run.log").open("a", encoding="utf-8") as log_file, (
             output / "errors.log").open("a", encoding="utf-8") as error_file:
@@ -759,6 +802,9 @@ def execute(inv, blocks, output, args, cancel):
                 error_file.flush()
         log(f"Selected {len(inv.sources)} source references; {len(inv.missing)} missing; "
             f"{sum(b.eligible for b in blocks)} eligible blocks; workers <= {args.workers}")
+        total_output = sum(estimates[b.name]["estimated_output_bytes"] for b in blocks if b.eligible)
+        log(f"Estimated compressed COG output: {total_output:,} bytes; "
+            f"disk space policy: {args.disk_space_policy}. Estimates are approximate.")
         if inv.missing:
             log("Missing files are recorded in state.json; uncovered pixels will be NoData")
         save_state(output, state)
@@ -774,14 +820,26 @@ def execute(inv, blocks, output, args, cancel):
                         pending.clear()
                     while pending and len(active) < args.workers:
                         block = pending[0]
-                        needed = 0 if (output / block.name).exists() else reservation(block, args.build_overviews)
-                        available = shutil.disk_usage(output).free
+                        needed = 0 if (output / block.name).exists() else estimates[block.name]["storage_reservation_bytes"]
+                        available = None
+                        if needed:
+                            try:
+                                available = shutil.disk_usage(output).free
+                            except OSError as exc:
+                                message = f"Cannot check disk free space for {block.name}: {exc}"
+                                if args.disk_space_policy == "error":
+                                    raise RunError(message) from exc
+                                log(f"WARNING: {message}; continuing (disk space policy: warn)")
                         reserved = sum(item[1] for item in active.values())
-                        if needed and available < reserved + needed + HEADROOM:
+                        if needed and available is not None and available < reserved + needed + HEADROOM:
                             if active:
                                 break
-                            raise RunError(f"Insufficient disk space for {block.name}: "
-                                           f"need {needed + HEADROOM:,} bytes, free {available:,}")
+                            message = (f"Insufficient disk space estimated for {block.name}: "
+                                       f"estimated working space {needed:,} bytes + "
+                                       f"{HEADROOM:,} bytes headroom, free {available:,}")
+                            if args.disk_space_policy == "error":
+                                raise RunError(message)
+                            log(f"WARNING: {message}; continuing (disk space policy: warn)")
                         pending.pop(0)
                         previous = state["blocks"][block.name]
                         adopted = previous["status"] != "complete"
@@ -850,6 +908,9 @@ def parser():
     result.add_argument("--workers", type=int, default=8)
     result.add_argument("--verify", action="store_true", help="Verify every base pixel and full COG structure")
     result.add_argument("--build-overviews", action="store_true", help="Create internal average overviews")
+    result.add_argument("--disk-space-policy", choices=("warn", "error"), default="warn",
+                        help="Warn and continue when estimated space is insufficient (default), "
+                             "or stop before starting a block with error")
     result.add_argument("--min-tiles-per-block", type=int, default=1)
     result.add_argument("--filename-filter", help="Case-insensitive basename substring")
     result.add_argument("--dry-run", action="store_true", help="Inspect and print the plan without writing files")
@@ -858,6 +919,8 @@ def parser():
 
 def run(args, cancel=None):
     validate_block_size(args.block_size)
+    if args.disk_space_policy not in ("warn", "error"):
+        raise InputError("Disk space policy must be warn or error")
     if args.workers < 1 or args.min_tiles_per_block < 1:
         raise InputError("Workers and minimum tiles per block must be positive")
     configure()
@@ -877,10 +940,12 @@ def run(args, cancel=None):
         raise InputError("Output paths overlap inputs")
     if args.dry_run:
         print(json.dumps({"sources": len(inv.sources), "missing_sources": inv.missing,
+                          "disk_space_policy": args.disk_space_policy,
+                          "storage_headroom_bytes": HEADROOM,
                           "blocks": [{"name": b.name, "bounds": b.bounds,
                                       "dimensions": b.window[2:], "tile_count": b.tile_count,
                                       "contributing_sources": len(b.sources), "eligible": b.eligible,
-                                      "storage_reservation_bytes": reservation(b, args.build_overviews)}
+                                      **storage_estimate(b, args.build_overviews)}
                                      for b in blocks]}, indent=2))
         return 0
     output.mkdir(parents=True, exist_ok=True)

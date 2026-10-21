@@ -51,9 +51,10 @@ The CI tests also exercise the system GDAL supplied by Ubuntu.
 | `--workers` | `8` | Maximum concurrent blocks. Each GDAL conversion uses one compression thread. |
 | `--verify` | Off | Check every full-resolution value and NoData flag against original TIFFs, plus full COG structure. Applies to existing outputs on resume too. |
 | `--build-overviews` | Off | Build fresh internal average overviews during COG conversion. |
+| `--disk-space-policy {warn,error}` | `warn` | Warn and continue if estimated space is insufficient or free space cannot be queried. Use `error` to stop before starting a block in these cases. |
 | `--min-tiles-per-block` | `1` | Minimum distinct available nominal 1° source tiles belonging to a block. Boundary-only neighbors do not inflate the count. |
 | `--filename-filter` | None | Case-insensitive substring of the basename, including extension. For example `"n32e"` selects northern 32° tiles in eastern longitudes. |
-| `--dry-run` | Off | Print source counts, missing files, exact blocks/dimensions, tile counts, and storage reservations; create no outputs or logs. |
+| `--dry-run` | Off | Print source counts, missing files, exact blocks/dimensions, tile counts, estimated compressed output and temporary sizes, working-space reservations, and disk policy; create no outputs or logs. |
 
 Valid block sizes are **1, 2, 3, 4, 5, 6, 8, 9, 10, 12, 15, 18, 20, 24,
 30, 36, 40, 45, 60, 72, 90, 120, 180, and 360** degrees. Fractions, zero,
@@ -107,7 +108,7 @@ With `--block-size 360`, the single output is
 `NASADEM_S90W180_N89E179.tif`. It spans -180..180° longitude and -90..90°
 latitude even when the input VRT or selected sources cover a smaller region.
 At native one-arcsecond spacing it has **1,296,001 × 648,001** samples.
-Inspect its dimensions and storage reservation before generation:
+Inspect its dimensions and compressed storage estimate before generation:
 
 ```cmd
 python create_nasadem_cogs.py ^
@@ -150,11 +151,31 @@ The process uses a shared 512 MiB GDAL cache, a 64-entry VRT dataset pool, and
 one GDAL compression thread per worker. These are planning limits, not a hard
 operating-system RAM ceiling.
 
-Storage reservation is three times the uncompressed base plus requested
-overview pixels (two bytes per Int16 sample), with 1 GiB free headroom.
-Scheduling reduces concurrency when free space is insufficient for another
-reservation. It fails cleanly if even one pending block cannot fit. Other
-processes can still consume disk space during a run.
+Storage estimates use the **actual compressed source TIFF sizes**, apportioned
+to their contributing windows. Existing source overviews are discounted using
+their share of the source pyramid's pixel count; identical source references
+are counted once. Uncovered areas use a small compressed NoData-tile allowance
+(2 KiB per 512 × 512 tile), plus TIFF metadata/index overhead. Requested output
+overviews are estimated from their additional pixel count. This avoids treating
+the entire geographic rectangle, including ocean and missing coverage, as raw
+uncompressed data. Estimation reads metadata, without scanning raster pixels.
+
+Dry-run JSON and `state.json` distinguish `estimated_output_bytes` from
+`estimated_temporary_bytes`. The latter allows for the temporary overview data
+used by [GDAL's COG CreateCopy workflow](https://gdal.org/en/stable/drivers/raster/cog.html)
+(approximately one third of final output size when overviews are generated),
+plus the staging VRT. `storage_reservation_bytes` is their sum with a **10% working
+margin**; the disk check adds **1 GiB headroom**. These are estimates, not upper
+bounds: source compression, overview compression, terrain, and GDAL versions
+can change the actual result. No source files are modified by estimation.
+
+The default **`--disk-space-policy warn`** logs a warning and continues when a
+block's estimated working space exceeds free space. Scheduling still reduces
+concurrency when estimated reservations do not fit together. If one block alone
+exceeds the estimate-based limit, it runs by itself. To stop before that block
+starts instead, pass **`--disk-space-policy error`**. An unavailable free-space
+query also follows the selected policy. Actual GDAL or filesystem write errors
+always fail the affected block and are checkpointed normally.
 
 ## Resume, cancellation, and reports
 
@@ -172,7 +193,7 @@ The output directory contains:
 
 Repeat the same command to resume. VRT content and path, selected source
 paths/sizes/modification times (including GDAL-reported dependencies), and
-output-affecting options must match. Changing workers or adding `--verify` is
+output-affecting options must match. Changing workers, disk-space policy, or adding `--verify` is
 allowed. Changed input files, newly available formerly missing files, changed
 block size/filter/minimum/overview options require a new output directory.
 Source size/time signatures detect ordinary changes; they are not content hashes
@@ -226,7 +247,7 @@ python create_nasadem_cogs.py ^
 ```
 
 The helper requires Python 3.11+ and at least 12 GiB free before downloading.
-The merger also checks its own conservative storage reservations. Test data
+The merger uses the compressed storage estimates and disk-space policy above. Test data
 and outputs under `.validation/` are ignored by Git. The helper is optional:
 the merger itself never downloads data.
 

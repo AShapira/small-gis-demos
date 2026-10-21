@@ -146,3 +146,50 @@ Evidence is retained under ignored `.validation/block-sizes/`:
 `legacy-*-resume.log`, `real-plans-and-legacy-resume.log`, and
 `validation-summary.json`. Python 3.9 syntax parsing and `git diff --check`
 also passed. Remote CI has not been run for this extension.
+
+## Compressed storage estimates and optional stopping — 2026-10-21
+
+All **43 tests passed in 15.033 seconds** under native Windows QGIS 4.2,
+Python 3.12.13, and GDAL 3.13.1. Added checks cover:
+
+- Warning and successful generation with a mocked zero-free-space result,
+  including multiple blocks and later strict-policy resume without rewriting.
+- Opt-in stopping with `--disk-space-policy error`, and warning/error handling
+  when the filesystem free-space query is unavailable.
+- Simulated actual write failures still returning a failure and checkpointing
+  the affected block; no physical disk was filled for this test.
+- Duplicate source references, partial source windows, source overview size
+  adjustment, compressed global NoData padding, and unchanged source files.
+
+The new estimate was compared with the existing two 10° COGs, which contain
+internal overviews. These files and their 160 source TIFFs were reused without
+regeneration. Sizes below use decimal GB and exclude the separate 1 GiB disk
+headroom:
+
+| Output | Actual COG | Estimated COG | Estimated temporary space | New working reservation | Previous reservation |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `NASADEM_N30E020_N39E029.tif` | 0.353 GB | 0.498 GB | 0.166 GB | 0.731 GB | 10.369 GB |
+| `NASADEM_N30E030_N39E039.tif` | 0.635 GB | 0.911 GB | 0.304 GB | 1.337 GB | 10.369 GB |
+| Total for both concurrent blocks | **0.988 GB** | **1.410 GB** | **0.470 GB** | **2.068 GB** | **20.737 GB** |
+
+The output estimates are approximately 41–44% above the measured files in this
+subset. The source-size proxy does not predict the exact effect of the output
+predictor, compression ratio, or overview content. The working reservation adds
+temporary overview space and a 10% margin; it no longer multiplies the full raw
+geographic rectangle by three. Temporary overview storage follows the
+[GDAL COG CreateCopy model](https://gdal.org/en/stable/drivers/raster/cog.html).
+
+Metadata-only plans also covered 90° and 360° outputs using these same 160 tiles.
+Their uncovered geographic area was estimated as compressed NoData. This is
+not an estimate measured against the full global NASADEM collection, and no
+new native-resolution global COG was generated.
+
+Both `warn` and `error` accepted the existing real-data checkpoint's signature
+and block inventory. This compatibility check only read the checkpoint; its
+bytes remained unchanged. The policy and estimate fields are operational
+metadata and do not change the output identity.
+
+Evidence is retained under ignored `.validation/storage-estimates/`:
+`native-tests.log`, `real-estimates.log`, and `validation-summary.json`.
+Python 3.9 syntax parsing and `git diff --check` passed. Remote CI has not been
+run for this change.
