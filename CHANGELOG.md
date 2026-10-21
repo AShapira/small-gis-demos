@@ -13,6 +13,15 @@
   including overviews, and retain CPU/RAM controls and cooperative cancellation.
   Document options, temporary storage costs and COG codec compatibility.
 
+## 0.12.0 — 2026-10-21
+
+- Accept every positive whole-degree divisor of 360 for NASADEM COG blocks.
+  Use symmetric polar clipping and create one whole-world COG with size 360.
+- Preserve existing 5°/10°/20° boundaries, filenames, and resume compatibility.
+  Document the grid layout, valid sizes, and native global raster dimensions.
+- Pass 38 native QGIS tests, dry-run the existing 160-tile subset at seven
+  larger sizes, and verify unchanged resume of 12 outputs from the prior version.
+
 ## 0.11.0 — 2026-10-20
 
 - Add a standalone QGIS/OSGeo4W-shell NASADEM merger producing 5°, 10°, or

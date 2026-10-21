@@ -1,7 +1,8 @@
 # NASADEM COG merger
 
-Create 5°, 10°, or 20° Cloud Optimized GeoTIFF blocks from an existing local
-NASADEM VRT and its 1° height tiles. Run the single file
+Create Cloud Optimized GeoTIFF blocks from an existing local NASADEM VRT and
+its 1° height tiles using any positive whole-degree divisor of 360. The default
+is 10°; 360° creates one whole-world COG. Run the single file
 `create_nasadem_cogs.py` in the **QGIS/OSGeo4W command shell on Windows**.
 It uses QGIS's GDAL, NumPy, and GDAL COG validator; no plugin or pip installation
 is required. Python 3.9+ and GDAL 3.6+ are required. This is a command-line tool,
@@ -46,13 +47,17 @@ The CI tests also exercise the system GDAL supplied by Ubuntu.
 | --- | --- | --- |
 | `--vrt-file` | Required | Local VRT with local TIFF references. Relative paths resolve against the VRT directory. Absolute and UNC paths are supported. |
 | `--output-dir` | Required | New/empty directory, or the directory of a compatible resumable run. May be a subdirectory of the source collection. |
-| `--block-size {5,10,20}` | `10` | Nominal geographic block size in degrees. |
+| `--block-size DEGREES` | `10` | Positive integer divisor of 360; nominal geographic block size in degrees. Latitude bands are clipped at the poles. Use `360` for one whole-world COG. |
 | `--workers` | `8` | Maximum concurrent blocks. Each GDAL conversion uses one compression thread. |
 | `--verify` | Off | Check every full-resolution value and NoData flag against original TIFFs, plus full COG structure. Applies to existing outputs on resume too. |
 | `--build-overviews` | Off | Build fresh internal average overviews during COG conversion. |
 | `--min-tiles-per-block` | `1` | Minimum distinct available nominal 1° source tiles belonging to a block. Boundary-only neighbors do not inflate the count. |
 | `--filename-filter` | None | Case-insensitive substring of the basename, including extension. For example `"n32e"` selects northern 32° tiles in eastern longitudes. |
 | `--dry-run` | Off | Print source counts, missing files, exact blocks/dimensions, tile counts, and storage reservations; create no outputs or logs. |
+
+Valid block sizes are **1, 2, 3, 4, 5, 6, 8, 9, 10, 12, 15, 18, 20, 24,
+30, 36, 40, 45, 60, 72, 90, 120, 180, and 360** degrees. Fractions, zero,
+negative values, and sizes that do not divide 360 exactly are rejected.
 
 Filtering applies **before** block assignment and seam composition. Only selected
 sources can supply pixels, including boundary samples. A filter with no usable
@@ -68,7 +73,22 @@ each source has **3,601 × 3,601** samples and each 10° output has
 **36,001 × 36,001** samples. Resolution is read from the input, not resampled.
 Rotated, warped, derived, scaled, remote, and incompatible inputs are rejected.
 
-Blocks use degree multiples, with mathematical floor for negative coordinates.
+Both grid axes start at -180° and advance by the block size. Latitude bands
+are then clipped to -90..90°, giving symmetric polar edge blocks. This preserves
+the original 5°/10°/20° boundaries, filenames, and compatible resume states.
+
+| Size | Complete world grid (columns × rows) | Latitude band heights, south to north |
+| --- | --- | --- |
+| 30° | 12 × 6 | Six 30° bands |
+| 45° | 8 × 4 | Four 45° bands |
+| 60° | 6 × 4 | 30°, 60°, 60°, 30° |
+| 90° | 4 × 2 | 90°, 90° |
+| 120° | 3 × 3 | 30°, 120°, 30° |
+| 180° | 2 × 2 | 90°, 90° |
+| 360° | 1 × 1 | 180° |
+
+These are potential world grids: only blocks containing selected source tiles
+are planned, and only those meeting `--min-tiles-per-block` are generated.
 Neighboring outputs share one sample row/column. This preserves the elevation
 sample coordinates; the pixel footprint extends half a pixel past the nominal
 degree boundary. Both outputs use the same selected contributing sources at
@@ -82,6 +102,20 @@ Base pixels are never averaged or reprojected.
 its final endpoint samples are at 10° north/east. Similarly,
 `NASADEM_S10W020_S01W011.tif` spans nominal coordinates -20..-10 longitude
 and -10..0 latitude, including the boundary samples.
+
+With `--block-size 360`, the single output is
+`NASADEM_S90W180_N89E179.tif`. It spans -180..180° longitude and -90..90°
+latitude even when the input VRT or selected sources cover a smaller region.
+At native one-arcsecond spacing it has **1,296,001 × 648,001** samples.
+Inspect its dimensions and storage reservation before generation:
+
+```cmd
+python create_nasadem_cogs.py ^
+  --vrt-file "D:\Maps\NASADEM\NASADEM_be.vrt" ^
+  --output-dir "D:\Maps\NASADEM\COG_world" ^
+  --block-size 360 ^
+  --dry-run
+```
 
 Missing referenced TIFFs are listed in `state.json`; uncovered areas remain
 NoData. They do not produce an error exit when other selected inputs are usable.
@@ -197,7 +231,8 @@ and outputs under `.validation/` are ignored by Git. The helper is optional:
 the merger itself never downloads data.
 
 See the [validation report](validation-report.md) for the native Windows tests,
-the downloaded 160-tile subset, two completed 10° COGs, and exhaustive results.
+the downloaded 160-tile subset, two completed 10° COGs, divisor-grid dry runs,
+whole-world synthetic COGs, and compatibility with previous resume states.
 
 The [local S3 ImageMosaic test](s3-imagemosaic/README.md) reuses those two COGs
 with Kartoza GeoServer 2.28.0, MinIO, and a PostGIS index.

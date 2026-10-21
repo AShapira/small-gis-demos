@@ -322,18 +322,38 @@ def coordinate(lat, lon):
     return f"{'N' if lat >= 0 else 'S'}{abs(lat):02d}{'E' if lon >= 0 else 'W'}{abs(lon):03d}"
 
 
+def validate_block_size(value):
+    if type(value) is not int or value <= 0 or 360 % value:
+        raise InputError("Block size must be a positive integer divisor of 360 degrees")
+    return value
+
+
+def block_size_argument(value):
+    try:
+        size = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "Block size must be a positive integer divisor of 360 degrees") from exc
+    try:
+        return validate_block_size(size)
+    except InputError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
 def plan_blocks(inv, block_size, minimum):
+    validate_block_size(block_size)
     groups = {}
     for source in inv.sources:
-        west = math.floor(source.west / block_size) * block_size
-        south = max(-90, math.floor(source.south / block_size) * block_size)
+        # A symmetric 360-degree grid on both axes; latitude is clipped below.
+        west = -180 + ((source.west + 180) // block_size) * block_size
+        south = -180 + ((source.south + 180) // block_size) * block_size
         groups.setdefault((west, south), set()).add(str(source.path))
     result = []
     gt = inv.transform
     for (west, south), paths in sorted(groups.items(), key=lambda item: (item[0][1], item[0][0])):
-        east = min(180, west + block_size)
-        # The south polar block is the clipped [-100,-80] block for a 20° grid.
-        north = min(90, (math.floor(south / block_size) + 1) * block_size)
+        east = west + block_size
+        north = min(90, south + block_size)
+        south = max(-90, south)
         col = integer((west - (gt[0] + gt[1] / 2)) / gt[1], "Block column")
         row = integer((north - (gt[3] + gt[5] / 2)) / gt[5], "Block row")
         width = (east - west) * inv.intervals + 1
@@ -824,7 +844,9 @@ def parser():
     result = argparse.ArgumentParser(description=__doc__)
     result.add_argument("--vrt-file", required=True, type=Path)
     result.add_argument("--output-dir", required=True, type=Path)
-    result.add_argument("--block-size", type=int, choices=(5, 10, 20), default=10)
+    result.add_argument("--block-size", type=block_size_argument, default=10, metavar="DEGREES",
+                        help="Positive integer divisor of 360 (default: 10); "
+                             "360 creates one whole-world COG")
     result.add_argument("--workers", type=int, default=8)
     result.add_argument("--verify", action="store_true", help="Verify every base pixel and full COG structure")
     result.add_argument("--build-overviews", action="store_true", help="Create internal average overviews")
@@ -835,6 +857,7 @@ def parser():
 
 
 def run(args, cancel=None):
+    validate_block_size(args.block_size)
     if args.workers < 1 or args.min_tiles_per_block < 1:
         raise InputError("Workers and minimum tiles per block must be positive")
     configure()

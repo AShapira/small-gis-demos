@@ -97,3 +97,52 @@ Generated data and evidence are ignored by Git. Syntax parsing and
 `git diff --check` passed. This validates the downloaded two-block subset and
 generated fixtures, not a complete global NASADEM conversion or the user's
 separate `H:` dataset. The QGIS GUI was not required for this shell utility.
+
+## Block-size extension — 2026-10-21
+
+Validated the divisor-based grid with native Windows QGIS 4.2, Python 3.12.13,
+GDAL 3.13.1, and NumPy 2.4.6. All **38 tests passed in 14.749 seconds**,
+including the existing Windows Ctrl+C/resume test. New coverage checks:
+
+- Every positive integer divisor of 360, symmetric continuous longitude and
+  latitude bands, polar clipping, dimensions, and georeferencing.
+- Invalid CLI and direct-call sizes rejected before inventory/output creation.
+- Unchanged 5°/10°/20° boundaries, including the polar blocks, and resume.
+- Creation, exhaustive verification, overviews, and resume of a **721 × 361**
+  synthetic whole-world COG: all **260,281 pixels** checked against the source
+  TIFFs, including both dateline endpoints, both poles, NoData, and source order.
+- Expansion of a regional **5 × 3** VRT into a **721 × 361** whole-world COG,
+  again checking all pixels and the NoData padding.
+
+The downloaded **160-tile** subset was reused for native-resolution dry runs
+with overviews enabled. Every source belonged to exactly one nominal block;
+all planned blocks were eligible, and no output directories were created.
+
+| Block size | Planned outputs for this subset | Dimensions per output |
+| --- | ---: | --- |
+| 30° | 2 | 108,001 × 108,001 |
+| 45° | 1 | 162,001 × 162,001 |
+| 60° | 1 | 216,001 × 216,001 |
+| 90° | 1 | 324,001 × 324,001 |
+| 120° | 1 | 432,001 × 432,001 |
+| 180° | 1 | 648,001 × 324,001 |
+| 360° | 1 | 1,296,001 × 648,001 |
+
+The 360° output is `NASADEM_S90W180_N89E179.tif`, with sample bounds
+`(-180, -90, 180, 90)`. Its existing conservative storage calculation reserves
+**6,718,487,155,740 bytes** with overviews, plus the separate 1 GiB headroom.
+These large native-resolution outputs were planned only; whole-world generation
+was exercised using the synthetic fixtures above.
+
+For an independent compatibility check, the committed merger at
+`6cc5842209b660995af51bd5a83132acd89e2721` created four synthetic COGs for each
+legacy size (5°, 10°, and 20°), including polar and equator-adjacent inputs.
+The updated merger exhaustively verified and skipped all **12 outputs** on
+resume. Their SHA-256 hashes, modification times, and checkpoint signatures
+were unchanged.
+
+Evidence is retained under ignored `.validation/block-sizes/`:
+`native-tests-final.log`, `real-*-dry-run.json`, `legacy-*-create.log`,
+`legacy-*-resume.log`, `real-plans-and-legacy-resume.log`, and
+`validation-summary.json`. Python 3.9 syntax parsing and `git diff --check`
+also passed. Remote CI has not been run for this extension.

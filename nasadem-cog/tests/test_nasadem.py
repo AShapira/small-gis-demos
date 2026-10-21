@@ -10,6 +10,7 @@ import sys
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
@@ -124,7 +125,7 @@ class MergerTests(unittest.TestCase):
         self.assertEqual(report["blocks"][0]["dimensions"], [21, 21])
         self.assertFalse(self.output.exists())
 
-    def test_all_block_sizes_quadrants_and_zero(self):
+    def test_legacy_block_sizes_quadrants_and_zero(self):
         for west, south in ((0, 0), (-1, -1), (-20, -10), (39, 39)):
             self.tile(west, south)
         self.write_vrt()
@@ -138,6 +139,141 @@ class MergerTests(unittest.TestCase):
                     self.assertEqual(block.bounds[1] % size, 0)
         self.assertIn("NASADEM_S10W020_S01W011.tif",
                       [b.name for b in merger.plan_blocks(inv, 10, 1)])
+
+    def test_all_block_sizes_cover_symmetric_world_axes(self):
+        # Cross-shaped strips exercise every nominal longitude/latitude without
+        # creating a global source collection or allocating full-sized rasters.
+        origins = {(west, 0) for west in range(-180, 180)}
+        origins.update((0, south) for south in range(-90, 90))
+        n = self.n
+        inv = SimpleNamespace(
+            transform=(-180 - .5/n, 1/n, 0, 90 + .5/n, 0, -1/n), intervals=n,
+            sources=[SimpleNamespace(path=Path(f"tile_{west}_{south}.tif"), west=west,
+                                     south=south, dst=((west+180)*n, (89-south)*n, n+1, n+1))
+                     for west, south in sorted(origins)])
+        sizes = (1, 2, 3, 4, 5, 6, 8, 9, 10, 12, 15, 18, 20, 24,
+                 30, 36, 40, 45, 60, 72, 90, 120, 180, 360)
+        expected_heights = {30: [30]*6, 45: [45]*4, 60: [30, 60, 60, 30],
+                            90: [90, 90], 120: [30, 120, 30], 180: [90, 90], 360: [180]}
+        for size in sizes:
+            with self.subTest(size=size):
+                self.assertEqual(self.args("--block-size", str(size)).block_size, size)
+                blocks = merger.plan_blocks(inv, size, 1)
+                self.assertEqual(len({b.name for b in blocks}), len(blocks))
+                self.assertEqual(sum(b.tile_count for b in blocks), len(origins))
+                xs = sorted({(b.bounds[0], b.bounds[2]) for b in blocks})
+                ys = sorted({(b.bounds[1], b.bounds[3]) for b in blocks})
+                self.assertEqual(len(xs), 360 // size)
+                self.assertTrue(all(east-west == size for west, east in xs))
+                for segments, low, high in ((xs, -180, 180), (ys, -90, 90)):
+                    self.assertEqual((segments[0][0], segments[-1][1]), (low, high))
+                    self.assertTrue(all(0 < end-start <= size for start, end in segments))
+                    self.assertTrue(all(a[1] == b[0] for a, b in zip(segments, segments[1:])))
+                    self.assertEqual(segments, sorted((-end, -start) for start, end in segments))
+                if size in expected_heights:
+                    self.assertEqual([north-south for south, north in ys], expected_heights[size])
+                for block in blocks:
+                    west, south, east, north = block.bounds
+                    self.assertEqual(block.window[2:], ((east-west)*n+1, (north-south)*n+1))
+                    transform = merger.block_transform(inv, block)
+                    self.assertEqual((transform[0]+.5/n, transform[3]-.5/n), (west, north))
+
+    def test_invalid_block_sizes_fail_before_inventory_or_output(self):
+        for value in ("0", "-10", "7", "11", "359", "361", "720", "1.5", "30.0", "abc"):
+            with self.subTest(cli=value), contextlib.redirect_stderr(io.StringIO()) as errors:
+                with self.assertRaises(SystemExit) as raised:
+                    self.args("--block-size", value)
+                self.assertEqual(raised.exception.code, 2)
+                self.assertIn("positive integer divisor of 360", errors.getvalue())
+        for value in (0, -10, 7, 361, 720, 1.5, 30.0, True, None, "30"):
+            with self.subTest(direct=value):
+                with self.assertRaisesRegex(merger.InputError, "positive integer divisor of 360"):
+                    merger.plan_blocks(None, value, 1)
+                args = self.args()
+                args.block_size = value
+                with self.assertRaisesRegex(merger.InputError, "positive integer divisor of 360"):
+                    merger.run(args)
+        self.assertFalse(self.output.exists())
+
+    def test_legacy_polar_bounds_and_resume(self):
+        for west, south in ((-180, -90), (0, 0), (179, 89)):
+            self.tile(west, south)
+        self.write_vrt()
+        inv = merger.read_inventory(self.vrt)
+        expected = {
+            5: [(-180, -90, -175, -85), (0, 0, 5, 5), (175, 85, 180, 90)],
+            10: [(-180, -90, -170, -80), (0, 0, 10, 10), (170, 80, 180, 90)],
+            20: [(-180, -90, -160, -80), (0, 0, 20, 20), (160, 80, 180, 90)],
+        }
+        for size, bounds in expected.items():
+            with self.subTest(size=size):
+                self.assertEqual([b.bounds for b in merger.plan_blocks(inv, size, 1)], bounds)
+                self.output = self.root / f"outputs_{size}"
+                self.assertEqual(self.run_merge("--block-size", str(size), "--verify"), 0)
+                paths = sorted(self.output.glob("*.tif"))
+                before = [(p.stat().st_mtime_ns, p.read_bytes()) for p in paths]
+                self.assertEqual(self.run_merge("--block-size", str(size), "--verify"), 0)
+                self.assertEqual([(p.stat().st_mtime_ns, p.read_bytes()) for p in paths], before)
+                self.assertTrue(all(b["action"] == "skipped" for b in self.state()["blocks"].values()))
+
+    def test_whole_world_cog_values_gaps_overviews_and_resume(self):
+        # Samples on both dateline endpoints, both poles, and in every quadrant.
+        samples = [(-180, -90, -7), (-180, 89, 0), (179, -90, 42), (179, 89, 999),
+                   (-1, -1, -20), (0, 0, 100)]
+        for west, south, value in samples:
+            self.tile(west, south, np.full((3, 3), value))
+        self.write_vrt()
+        inv = merger.read_inventory(self.vrt)
+        blocks = merger.plan_blocks(inv, 360, 1)
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0].bounds, (-180, -90, 180, 90))
+        self.assertEqual(blocks[0].tile_count, len(samples))
+        self.assertFalse(merger.plan_blocks(inv, 360, len(samples)+1)[0].eligible)
+        options = ("--block-size", "360", "--verify", "--build-overviews")
+        self.assertEqual(self.run_merge(*options), 0)
+        paths = list(self.output.glob("*.tif"))
+        self.assertEqual([p.name for p in paths], ["NASADEM_S90W180_N89E179.tif"])
+        path = paths[0]
+        with merger.opened(path) as ds:
+            self.assertEqual((ds.RasterXSize, ds.RasterYSize), (721, 361))
+            self.assertEqual(ds.GetRasterBand(1).GetOverviewCount(), 1)
+            self.assertEqual(ds.GetGeoTransform(), (-180.25, .5, 0, 90.25, 0, -.5))
+        for west, south, value in samples:
+            self.assertEqual(self.sample(path, west+.5, south+.5), value)
+        for lon, lat, value in ((-180, -90, -7), (-180, 90, 0), (180, -90, 42),
+                                (180, 90, 999), (0, 0, 100), (45, 45, -32768)):
+            self.assertEqual(self.sample(path, lon, lat), value)
+        record = next(iter(self.state()["blocks"].values()))
+        self.assertEqual(record["verification"]["pixels_checked"], 721*361)
+        self.assertTrue(record["verification"]["full_cog_check"])
+        before = path.stat().st_mtime_ns, path.read_bytes()
+        self.assertEqual(self.run_merge(*options), 0)
+        self.assertEqual(next(iter(self.state()["blocks"].values()))["action"], "skipped")
+        self.assertEqual((path.stat().st_mtime_ns, path.read_bytes()), before)
+
+    def test_whole_world_cog_expands_regional_vrt(self):
+        self.tile(20, 30)
+        self.tile(21, 30)
+        root = self.write_vrt()
+        root.set("rasterXSize", "5")
+        root.set("rasterYSize", "3")
+        root.find("GeoTransform").text = "19.75,0.5,0,31.25,0,-0.5"
+        for index, rect in enumerate(root.findall(".//DstRect")):
+            rect.set("xOff", str(index*2))
+            rect.set("yOff", "0")
+        ET.ElementTree(root).write(self.vrt)
+        inv = merger.read_inventory(self.vrt)
+        block, = merger.plan_blocks(inv, 360, 1)
+        self.assertEqual(block.window, (-400, -118, 721, 361))
+        self.assertEqual(self.run_merge("--block-size", "360", "--verify"), 0)
+        path, = self.output.glob("*.tif")
+        self.assertEqual(self.sample(path, 20.5, 30.5), 1)
+        self.assertEqual(self.sample(path, 21, 30.5), 2)
+        self.assertEqual(self.sample(path, 21.5, 30.5), 2)
+        for lon, lat in ((-180, -90), (-180, 90), (180, -90), (180, 90), (0, 0)):
+            self.assertEqual(self.sample(path, lon, lat), -32768)
+        self.assertEqual(next(iter(self.state()["blocks"].values()))["verification"]["pixels_checked"],
+                         721*361)
 
     def test_shared_edges_last_valid_source_and_full_pixel_count(self):
         self.tile(9, 0, np.full((3, 3), 12))
@@ -497,6 +633,16 @@ class MergerTests(unittest.TestCase):
         block = merger.plan_blocks(inv, 10, 1)[0]
         self.assertEqual(block.window[2:], (36001, 36001))
         self.assertEqual(block.bounds, (30, 30, 40, 40))
+        for size, bounds in {
+            30: (30, 30, 60, 60), 45: (0, 0, 45, 45), 60: (0, 0, 60, 60),
+            90: (0, 0, 90, 90), 120: (-60, -60, 60, 60),
+            180: (0, 0, 180, 90), 360: (-180, -90, 180, 90),
+        }.items():
+            with self.subTest(size=size):
+                block, = merger.plan_blocks(inv, size, 1)
+                self.assertEqual(block.bounds, bounds)
+                west, south, east, north = bounds
+                self.assertEqual(block.window[2:], ((east-west)*3600+1, (north-south)*3600+1))
 
     def test_old_source_overviews_are_not_used_for_new_averages(self):
         self.n = 64
