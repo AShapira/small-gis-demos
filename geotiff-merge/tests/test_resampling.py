@@ -124,6 +124,20 @@ class ResamplingTests(unittest.TestCase):
         with self.assertRaisesRegex(merge.MergeError, 'collid'):
             self.run_merge('--pixel-size', '8', '--output-nodata', '2')
 
+    def test_automatic_nodata_excludes_rounded_average_and_overlap_losers(self):
+        # Zero is absent from the inputs but introduced by averaging -1 and 1.
+        values = np.array([[-1, 1]], dtype='int16')
+        self.raster(values)
+        # The discarded observation must also exclude the next candidate (-32768).
+        self.raster(np.array([[-32768, 1]], dtype='int16'), name='b.tif')
+        report = self.run_merge('--pixel-size', '8', '--overlap', 'first')
+        self.assertEqual(report['output_nodata'], '32767')
+        self.assertIn('resampled', report['nodata_analysis']['scope'])
+        with gdal.Open(str(next(self.output.glob('*.tif')))) as ds:
+            np.testing.assert_array_equal(ds.ReadAsArray(), [[0]])
+            self.assertEqual(ds.GetRasterBand(1).GetNoDataValue(), 32767)
+            self.assertEqual(ds.GetRasterBand(1).GetMaskFlags(), gdal.GMF_NODATA)
+
     def test_overlap_is_resolved_before_average(self):
         self.raster(np.ones((5,5), dtype='uint8') * 2)
         self.raster(np.ones((5,5), dtype='uint8') * 8, name='b.tif')
@@ -182,6 +196,7 @@ class ResamplingTests(unittest.TestCase):
                     if corruption == 'value':
                         ds.GetRasterBand(1).WriteArray(np.array([[99]], dtype='uint8'))
                     elif corruption == 'mask':
+                        ds.CreateMaskBand(gdal.GMF_PER_DATASET)
                         ds.GetRasterBand(1).GetMaskBand().WriteArray(np.array([[0]], dtype='uint8'))
                     else:
                         ds.SetGeoTransform((0,10,0,200,0,-10))

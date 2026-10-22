@@ -382,14 +382,32 @@ def nodata_text(value):
     return repr(value).lower()
 
 
+def byte_fill_value(text):
+    try:
+        value = Decimal(str(text))
+        if not value.is_finite() or value != value.to_integral_value() or not 0 <= value <= 255:
+            raise ValueError
+        return int(value)
+    except (InvalidOperation, ValueError):
+        raise argparse.ArgumentTypeError('--fallback-fill must be an integer from 0 through 255') from None
+
+
 def matches_nodata(values, value):
     return np.isnan(values) if math.isnan(value) else values == value
 
 
 def output_signature(template):
+    if 'fallback_fill' in template:
+        return dict(template, nodata=None, nodata_tuple='')
     if 'output_nodata' in template:
         return dict(template, nodata=template['output_nodata'], nodata_tuple='')
     return template
+
+
+def set_output_nodata(template, value):
+    template['output_nodata'] = value
+    if 'resample' in template:
+        template['resample']['source_template']['output_nodata'] = value
 
 
 def valid_value_blocks(sources, template, edge):
@@ -473,7 +491,7 @@ def find_unused_value(sources, template, edge):
     return None if key is None else np.array([key], dtype=uint).view(dtype)[0].item()
 
 
-def nodata_analysis(sources, template, resources, requested=None, suggest=False):
+def nodata_analysis(sources, template, resources, requested=None, suggest=False, automatic=False):
     dtype = np.dtype(template['dtype'])
     candidates = []
     if requested is not None:
@@ -516,7 +534,8 @@ def nodata_analysis(sources, template, resources, requested=None, suggest=False)
         value = find_unused_value(sources, template, resources['block_size'])
         if value is not None:
             suggestions.append(nodata_text(value))
-    result = dict(dtype=dtype.name, default_output_uses_internal_mask=template['nodata'] is None,
+    result = dict(dtype=dtype.name,
+                  default_output_uses_internal_mask=template['count'] > 1 and template['nodata'] is None,
                   valid_source_band_samples=valid_count, invalid_source_band_samples=invalid_count,
                   suggestions=suggestions, suggestion_search_complete=suggest,
                   requested=nodata_text(requested) if requested is not None else None,
@@ -530,9 +549,12 @@ def nodata_analysis(sources, template, resources, requested=None, suggest=False)
         result['replacement_possible'] = bool(suggestions)
         if suggestions:
             log('Safe output NoData choices: ' + ', '.join(suggestions))
-            log(f'Rerun with --output-nodata={suggestions[0]} to use scalar NoData without a stored mask')
+            if not automatic:
+                log(f'Rerun with --output-nodata={suggestions[0]} to use scalar NoData without a stored mask')
         else:
-            log('No unused NoData value exists in this data type; retain the mask to preserve valid data')
+            log('No unused NoData value exists in this data type; ' +
+                ('no scalar NoData encoding is available for this single-band output' if template['count'] == 1 else
+                 'retain the mask to preserve valid data'))
     return result
 
 
@@ -949,6 +971,9 @@ def derived_blocks(sources, template, edge, policy, reference=False):
 
 
 def prepare_derived(data, valid, template):
+    if 'fallback_fill' in template:
+        data[~valid] = template['fallback_fill']
+        return data
     output = output_signature(template)
     nd = output['nodata']
     if nd is not None:
@@ -968,8 +993,19 @@ def prepare_derived(data, valid, template):
     return data
 
 
+def verify_mask_storage(ds, template):
+    if 'fallback_fill' in template:
+        expected, description = gdal.GMF_ALL_VALID, 'fallback-filled data without a stored mask'
+    elif output_signature(template)['nodata'] is not None:
+        expected, description = gdal.GMF_NODATA, 'scalar NoData without a stored mask'
+    else:
+        return
+    if any(ds.GetRasterBand(i).GetMaskFlags() != expected for i in range(1, ds.RasterCount + 1)):
+        raise MergeError('Verification failed: expected ' + description)
+
+
 def verify_resampled(path, region, sources, template, readers, edge, policy):
-    checked = 0
+    checked = filled = 0
     with opened(path) as dst:
         check_compression(dst, template['compression_settings'])
         if (dst.RasterXSize != region.w or dst.RasterYSize != region.h or
@@ -977,14 +1013,16 @@ def verify_resampled(path, region, sources, template, readers, edge, policy):
                 Grid(*dst.GetGeoTransform()) != template['transform'].shifted(region.x, region.y) or
                 not compatible(signature(dst), {k: output_signature(template)[k] for k in signature(dst)})):
             raise MergeError('Verification failed: resampled georeferencing or metadata')
-        if 'output_nodata' in template and any(dst.GetRasterBand(i).GetMaskFlags() != gdal.GMF_NODATA
-                                               for i in range(1, dst.RasterCount + 1)):
-            raise MergeError('Verification failed: expected scalar NoData without a stored mask')
+        verify_mask_storage(dst, template)
         for part in blocks(region, min(edge, 64)):
             expected, valid, error = resample_block(part, sources, template, readers, policy, reference=True, with_error=True)
             prepare_derived(expected, valid, template)
             actual, masks = read_values(dst, part, region), read_masks(dst, part, region)
-            if not np.array_equal(valid, masks):
+            if 'fallback_fill' in template:
+                if not masks.all() or np.any(actual[~valid] != template['fallback_fill']):
+                    raise MergeError('Verification failed: fallback fill or output validity')
+                filled += int((~valid).sum())
+            elif not np.array_equal(valid, masks):
                 raise MergeError('Verification failed: resampled validity mask')
             if template['resample']['method'] == 'average' and actual.dtype.kind == 'f':
                 equal = np.abs(actual.astype(np.longdouble) - expected.astype(np.longdouble)) <= error
@@ -994,13 +1032,17 @@ def verify_resampled(path, region, sources, template, readers, edge, policy):
                 raise MergeError('Verification failed: resampled pixels differ')
             checked += int(valid.sum())
             advance_work('Merging and verifying', part.area)
-    return dict(checked_output_band_samples=checked, verification='resampled from original inputs')
+    result = dict(checked_output_band_samples=checked, verification='resampled from original inputs')
+    if 'fallback_fill' in template:
+        result['filled_output_band_samples'] = filled
+    return result
 
 
 def create_candidate(path, region, sources, template, readers, edge, policy, compression):
     output = output_signature(template)
     nd = output["nodata"]
-    fill = nd if nd is not None else 0
+    fill = template.get('fallback_fill', nd if nd is not None else 0)
+    stored_mask = nd is None and 'fallback_fill' not in template
     options = ['TILED=YES', 'BLOCKXSIZE=256', 'BLOCKYSIZE=256', 'BIGTIFF=YES',
                'INTERLEAVE=PIXEL', *template['compression_settings']['creation_options'],
                f'NUM_THREADS={template.get("codec_threads", 1)}']
@@ -1024,14 +1066,14 @@ def create_candidate(path, region, sources, template, readers, edge, policy, com
             b.SetUnitType(template['units'][i])
             b.SetDescription(template['descriptions'][i])
             b.SetColorInterpretation(template['colorinterp'][i])
-        if nd is None:
+        if stored_mask:
             dst.CreateMaskBand(gdal.GMF_PER_DATASET)
         for part in blocks(region, min(edge, 64) if 'resample' in template else edge):
             if 'resample' in template:
                 data, valid = resample_block(part, sources, template, readers, policy)
                 data = prepare_derived(data, valid, template)
                 dst.WriteArray(data, xoff=part.x - region.x, yoff=part.y - region.y)
-                if nd is None:
+                if stored_mask:
                     dst.GetRasterBand(1).GetMaskBand().WriteArray(valid[0].astype('uint8') * 255,
                             xoff=part.x - region.x, yoff=part.y - region.y)
                 advance_work('Merging and verifying', part.area)
@@ -1052,7 +1094,7 @@ def create_candidate(path, region, sources, template, readers, edge, policy, com
                 np.copyto(data[section], values, where=take)
                 valid[section] |= mask
             dst.WriteArray(data, xoff=part.x - region.x, yoff=part.y - region.y)
-            if nd is None:
+            if stored_mask:
                 dst.GetRasterBand(1).GetMaskBand().WriteArray(valid[0].astype('uint8') * 255,
                         xoff=part.x - region.x, yoff=part.y - region.y)
             advance_work('Merging and verifying', part.area)
@@ -1069,7 +1111,7 @@ def verify_output(path, region, sources, template, readers, edge, policy):
     """
     if 'resample' in template:
         return verify_resampled(path, region, sources, template, readers, edge, policy)
-    checked = discarded = 0
+    checked = discarded = filled = 0
     with opened(path) as dst:
         if 'compression_settings' in template:
             check_compression(dst, template['compression_settings'])
@@ -1077,10 +1119,7 @@ def verify_output(path, region, sources, template, readers, edge, policy):
         if (dst.RasterXSize != region.w or dst.RasterYSize != region.h or not same_crs(dst.GetProjection(), template['crs']) or
                 Grid(*dst.GetGeoTransform()) != expected_transform or not compatible(signature(dst), {k: output_signature(template)[k] for k in signature(dst)})):
             raise MergeError(f"Verification failed: georeferencing or band metadata in {path.name}")
-        if 'output_nodata' in template and any(
-                dst.GetRasterBand(i).GetMaskFlags() != gdal.GMF_NODATA
-                for i in range(1, dst.RasterCount + 1)):
-            raise MergeError(f'Verification failed: expected scalar NoData without a stored mask in {path.name}')
+        verify_mask_storage(dst, template)
         ordered = list(reversed(sources)) if policy == "last" else sources
         hits = [s for s in ordered if s.rect.intersection(region)]
         for part in blocks(region, edge):
@@ -1100,10 +1139,17 @@ def verify_output(path, region, sources, template, readers, edge, policy):
                 checked += int(required.sum())
                 discarded += int((mask & covered[section] & ~equal).sum())
                 covered[section] |= mask
-            if not np.array_equal(covered, actual_mask):
+            if 'fallback_fill' in template:
+                if not actual_mask.all() or np.any(actual[~covered] != template['fallback_fill']):
+                    raise MergeError(f'Verification failed: fallback fill or output validity in {path.name}')
+                filled += int((~covered).sum())
+            elif not np.array_equal(covered, actual_mask):
                 raise MergeError(f"Verification failed: validity mask or empty area in {path.name}")
             advance_work('Merging and verifying', part.area)
-    return {"checked_source_band_samples": checked, "discarded_conflicting_source_band_samples": discarded}
+    result = {"checked_source_band_samples": checked, "discarded_conflicting_source_band_samples": discarded}
+    if 'fallback_fill' in template:
+        result['filled_output_band_samples'] = filled
+    return result
 
 
 def ensure_coverage(sources, outputs):
@@ -1224,7 +1270,7 @@ def estimate_density(sources, template, compression, workers):
                     rect = Rect(src.rect.x + int((src.rect.w - w) * fx),
                                 src.rect.y + int((src.rect.h - h) * fy), w, h)
                     values, valid = read(src, rect, readers, template)
-                    values[~valid] = output['nodata'] if output['nodata'] is not None else 0
+                    values[~valid] = template.get('fallback_fill', output['nodata'] if output['nodata'] is not None else 0)
                     if output['nodata_tuple']:
                         for band, value in enumerate(output['nodata_tuple'].split()):
                             values[band][~valid[band]] = float(value)
@@ -1320,14 +1366,23 @@ def _run(args, progress):
             check_cancel()
             progress.phase_start('Inspecting inputs', 0, .05)
             sources, template = inventory(source_dir)
+            if args.fallback_fill is not None:
+                if template['count'] != 1 or template['dtype'] != 'uint8':
+                    raise MergeError('--fallback-fill requires single-band Byte (uint8) inputs')
+                report['fallback_fill'] = dict(value=args.fallback_fill, selected=False)
             if args.pixel_size is not None:
                 template = output_grid(sources, template, args.pixel_size, args.resampling)
                 template['resample']['policy'] = args.overlap
             if args.output_nodata is not None:
-                template['output_nodata'] = parse_output_nodata(args.output_nodata, template['dtype'])
+                set_output_nodata(template, parse_output_nodata(args.output_nodata, template['dtype']))
                 report['output_nodata'] = nodata_text(template['output_nodata'])
-                if 'resample' in template:
-                    template['resample']['source_template']['output_nodata'] = template['output_nodata']
+                report['output_nodata_source'] = 'explicit'
+            elif template['nodata'] is not None:
+                report['output_nodata'] = nodata_text(template['nodata'])
+                report['output_nodata_source'] = 'inherited'
+            automatic_nodata = (args.output_nodata is None and template['count'] == 1 and
+                                template['nodata'] is None)
+            check_nodata = automatic_nodata or args.suggest_nodata or args.output_nodata is not None
             settings = compression_settings(args, template['dtype'])
             template['compression_settings'] = settings
             report['compression_settings'] = settings
@@ -1366,18 +1421,42 @@ def _run(args, progress):
             for source in sources:
                 report["inputs"].append({"name": source.path.name, "grid_window": vars(source.rect),
                                          "dependencies": [{"path": str(p), **fingerprints[p]} for p in source.files]})
-            if args.suggest_nodata or args.output_nodata is not None:
+            if check_nodata:
                 progress.phase_start('Checking NoData choices', .2, .05, sum(s.rect.area for s in sources))
                 report['nodata_analysis'] = nodata_analysis(sources, template, resources,
-                    requested=template.get('output_nodata'), suggest=args.suggest_nodata)
+                    requested=template.get('output_nodata'), suggest=args.suggest_nodata or automatic_nodata,
+                    automatic=automatic_nodata)
+                if automatic_nodata:
+                    choices = report['nodata_analysis']['suggestions']
+                    report['output_nodata_source'] = 'automatic'
+                    report['output_nodata'] = choices[0] if choices else None
+                    if choices:
+                        set_output_nodata(template, parse_output_nodata(choices[0], template['dtype']))
+                        log(f'Automatically selected output NoData: {choices[0]}; no stored mask will be written')
+                    elif args.fallback_fill is not None:
+                        template['fallback_fill'] = args.fallback_fill
+                        report['fallback_fill']['selected'] = True
+                        report['output_nodata_source'] = 'fallback_fill'
+                        report['sample_comparison'] = (
+                            'Exhaustive resampled valid values' if 'resample' in template else
+                            'Bitwise equality of every required valid source sample') + (
+                            '; all missing output samples checked against fallback fill; '
+                            'filled areas become valid data without NoData or a stored mask')
+                        log(f'No safe NoData value: missing areas will be filled with {args.fallback_fill} '
+                            'as ordinary valid data, without NoData or a stored mask')
                 write_report(output_dir, report)
                 if report['nodata_analysis']['requested_is_safe'] is False:
                     raise MergeError('Requested output NoData collides with valid source samples; choose another value or retain the mask')
+                if automatic_nodata and not choices and args.fallback_fill is None and not args.analyze_only:
+                    raise MergeError('No unused NoData value exists for single-band output in ' +
+                                     template['dtype'] + '; cannot merge without a stored mask in this data type' +
+                                     ('; use --fallback-fill VALUE to turn missing areas into ordinary Byte data'
+                                      if template['dtype'] == 'uint8' else ''))
             log("Checking overlap pixels")
             pairs = [(a, b) for i, a in enumerate(sources) for b in sources[i + 1:]
                      if a.rect.intersection(b.rect)]
-            progress.phase_start('Checking overlaps', .25 if args.suggest_nodata or args.output_nodata is not None else .2,
-                                 .1 if args.suggest_nodata or args.output_nodata is not None else .15,
+            progress.phase_start('Checking overlaps', .25 if check_nodata else .2,
+                                 .1 if check_nodata else .15,
                                  sum(a.rect.intersection(b.rect).area for a, b in pairs))
             def scan_pair(pair):
                 local = Readers(limit=2)
@@ -1479,8 +1558,11 @@ def parser():
                         help="Conflicting valid samples: stop (default), or use filename order priority")
     result.add_argument("--analyze-only", "--dry-run", dest="analyze_only", action="store_true", help="Hash inputs and inspect overlaps without creating mosaics")
     result.add_argument('--suggest-nodata', action='store_true',
-                        help='Exhaustively find unused scalar NoData values; combine with --dry-run to inspect only')
-    result.add_argument('--output-nodata', help='Fill missing pixels with this value, set scalar NoData, omit stored mask; reject collisions')
+                        help='Report safe NoData choices; automatic for single-band inputs without scalar NoData; combine with --dry-run')
+    missing = result.add_mutually_exclusive_group()
+    missing.add_argument('--output-nodata', help='Override output NoData; reject collisions. Single-band default: inherit NoData or select a safe value automatically, without a stored mask')
+    missing.add_argument('--fallback-fill', type=byte_fill_value, metavar='VALUE',
+                         help='Single-band Byte only: if no unused NoData value exists, fill missing areas with VALUE (0..255) as valid data, without NoData or a stored mask')
     result.add_argument("--compression", type=str.lower, choices=LOSSLESS_CODECS, default="deflate",
                         help="Lossless TIFF codec; default deflate. Availability depends on GDAL build")
     result.add_argument('--compression-level', type=int,
@@ -1555,11 +1637,15 @@ def start(input_dir, output_dir, *, target_size=None, base_name='mosaic', cpus=N
           overlap='error', compression='deflate', analyze_only=False, block_size=None,
           cache_mib=None, suggest_nodata=False, output_nodata=None, compression_level=None,
           predictor=1, cog=False, cog_overviews='nearest', pixel_size=None, resampling='average',
-          python_executable=None):
+          python_executable=None, fallback_fill=None):
     """Run from QGIS 4.2 console without blocking its Qt event loop.
 
     Uses QGIS's own Python in a separate process, so its GDAL cache and CPU
     settings cannot modify those of the interactive QGIS application.
+    Single-band outputs inherit scalar NoData or select a safe value automatically;
+    output_nodata overrides that choice. No stored mask is written for one band.
+    For Byte inputs, fallback_fill optionally fills missing areas as ordinary valid
+    data only when no safe NoData value exists. It cannot accompany output_nodata.
     """
     output = Path(output_dir).resolve()
     if output.exists():
@@ -1598,6 +1684,8 @@ def start(input_dir, output_dir, *, target_size=None, base_name='mosaic', cpus=N
         command += ['--suggest-nodata']
     if output_nodata is not None:
         command += [f'--output-nodata={output_nodata}']
+    if fallback_fill is not None:
+        command += [f'--fallback-fill={fallback_fill}']
     if analyze_only:
         command += ['--analyze-only']
     # Validate before launching; do not send invalid parameters to a background job.

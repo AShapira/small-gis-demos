@@ -3,8 +3,16 @@
 Merge a flat directory of `.tif` / `.tiff` files into larger, spatially disjoint
 GeoTIFFs. With no size target, all inputs merge into **one BigTIFF**. An optional
 size is a **target with a 10% allowance**: a 25 GB target accepts a
-finished TIFF up to 27.5 GB, including metadata, its internal mask and any COG overviews. Inputs
+finished TIFF up to 27.5 GB, including metadata, any stored mask and any COG overviews. Inputs
 are read-only. Every output is exhaustively verified before completion.
+
+**Single-band outputs default to scalar NoData without a stored mask or alpha band.**
+The merger inherits the sources' common NoData value, or automatically finds an
+unused value in their existing data type. Missing coverage and masked-out source
+pixels are filled with that value. `--output-nodata` / `output_nodata` overrides
+the choice. For Byte inputs using every value from 0 through 255,
+`--fallback-fill 0` can explicitly turn missing areas into ordinary zero-valued
+data, without NoData or a stored mask. Multiband defaults are unchanged.
 
 ## QGIS Python console
 
@@ -177,8 +185,9 @@ when `pixel_size` is omitted, all required valid base samples remain bit-identic
 to the sources, with the same grid, band count and validity. With `pixel_size`,
 the base image instead follows the resampling and verification rules above.
 Generated overview values are derived products, outside the source-sample equality guarantee. No physical alpha band
-is added; missing data keeps its existing scalar NoData/internal mask behavior,
-including the `--output-nodata` option.
+is added. Single-band COGs use the same scalar NoData default as ordinary TIFFs;
+multiband outputs retain their scalar NoData/internal mask behavior, including
+the `--output-nodata` option.
 
 Each candidate is written as a staging TIFF, converted with GDAL's COG driver,
 then reopened read-only. The finished COG is checked against the original inputs
@@ -222,8 +231,9 @@ The API column refers to keyword arguments of `merger["start"](...)`.
 | `--ram SIZE` | `ram` | 80% of available RAM | Working-memory planning budget, e.g. `8GiB`, capped by available-memory allowance. At least 256 MiB is required. Not an OS-enforced memory ceiling. |
 | `--overlap error\|first\|last` | `overlap` | `"error"` | Stop on conflicting valid samples, or explicitly select first/last valid source in lexical filename order. Identical overlaps and nodata fallback are accepted in every mode. First/last can discard observations. |
 | `--analyze-only`, alias `--dry-run` | `analyze_only` | `False` | Hash sources, inspect compatibility/overlaps, and write a report without TIFFs. Default overlap conflict policy still applies. |
-| `--suggest-nodata` | `suggest_nodata` | `False` | Exhaustively identify unused scalar NoData values across all valid source samples. Combine with `--dry-run` to inspect without merging. Adds console suggestions and a `nodata_analysis` report section. |
-| `--output-nodata VALUE` | `output_nodata` | Omitted / `None` | Recheck that the value is representable and unused by valid samples, fill missing pixels with it, and write scalar NoData without a stored mask. Use a suggested string unchanged, including `nan` for eligible floating-point inputs. |
+| `--suggest-nodata` | `suggest_nodata` | `False` | Report safe scalar NoData choices. The search runs automatically for single-band sources without scalar NoData. Combine with `--dry-run` to inspect without merging. |
+| `--output-nodata VALUE` | `output_nodata` | Omitted / `None` | Override the output NoData value after exhaustive collision checks. Single-band defaults inherit scalar NoData or select a safe value automatically; multiband defaults preserve the source convention. Use a suggested string unchanged, including `nan` for eligible floating-point inputs. |
+| `--fallback-fill VALUE` | `fallback_fill` | Omitted / `None` | Single-band Byte only: if automatic selection finds no unused NoData value, fill missing areas with this integer (0–255) as ordinary valid data. Writes neither NoData nor a stored mask. Cannot accompany `--output-nodata`. |
 | `--compression CODEC` | `compression` | `"deflate"` | `deflate`, `lzw`, `zstd`, `lzma`, `packbits`, or `none` (case-insensitive). Only lossless data encoding; installed GDAL support is checked. See the codec comparison below. |
 | `--compression-level N` | `compression_level` | Codec default | DEFLATE: 1–9, default 6; ZSTD: 1–22, default 9; LZMA: 0–9, default 6. Rejected for codecs without a level. |
 | `--predictor 1\|2\|3` | `predictor` | `1` | Reversible prediction: 1 none, 2 horizontal, 3 floating-point only. Values 2/3 require LZW, DEFLATE or ZSTD. |
@@ -376,9 +386,23 @@ PNG/GeoPackage outputs are outside this TIFF writer.
 Codec and predictor behavior follows the
 [GDAL GeoTIFF creation options](https://gdal.org/en/stable/drivers/raster/gtiff.html#creation-options).
 
-## Dry run: replace a stored mask with scalar NoData
+## Single-band NoData defaults and dry runs
 
-To check whether the mask QGIS exposes as an alpha band can be replaced:
+Single-band merging automatically avoids stored masks. An explicit
+`--output-nodata` takes precedence; otherwise the sources' common scalar NoData
+is retained. If none is declared, the existing exhaustive search selects its
+first safe value for the entire run, including all split output files. Source
+masks still determine which samples are valid. No valid zero or negative
+elevation is treated as missing merely because of its value.
+
+Automatic selection adds a full scan of valid source samples, and of derived
+samples when `--pixel-size` is set. Fallback searches can require additional
+passes. The scan uses bounded memory and the configured resource limits.
+Inherited NoData does not require this extra selection scan; its existing
+collision checks remain in force.
+
+To preview the choice for single-band inputs, use `--dry-run`. To request
+suggestions explicitly, including for multiband inputs:
 
 ```bash
 python geotiff-merge/merge_geotiffs.py /data/input /data/nodata-analysis \
@@ -388,11 +412,12 @@ python geotiff-merge/merge_geotiffs.py /data/input /data/nodata-analysis \
 `--dry-run` is an alias for `--analyze-only`. It creates a new report directory,
 reads the inputs and verifies their hashes, but writes no TIFFs. Add
 `--suggest-nodata` to check **all valid samples**, including all bands and all
-sources in overlapping areas. The console lists safe choices and a suggested
-`--output-nodata=VALUE` argument. `report.json` includes `nodata_analysis` with:
+sources in overlapping areas. The console lists safe choices and logs the
+automatic selection or a suggested `--output-nodata=VALUE` argument.
+`report.json` includes `nodata_analysis` with:
 
-- `default_output_uses_internal_mask`: whether the normal merge would store a
-  mask because the sources have no scalar NoData value.
+- `default_output_uses_internal_mask`: true only for multiband sources without
+  scalar NoData. Single-band output never falls back to a stored mask.
 - `suggestions`: unused values as strings, suitable for passing back unchanged.
   This is a list of useful choices, not every unused value in the data type.
 - `replacement_possible`: whether at least one common unused value was found.
@@ -401,6 +426,13 @@ sources in overlapping areas. The console lists safe choices and a suggested
   they do not count gaps outside source footprints. With pixel-size resampling,
   the counts instead use `valid_source_and_output_band_samples` and
   `invalid_source_and_output_band_samples`, and include the derived footprint.
+
+`report.json` also records `output_nodata` as a string and
+`output_nodata_source` as `explicit`, `inherited`, or `automatic` whenever a
+scalar output convention is selected. An automatic search with no safe value
+records `output_nodata: null` and `replacement_possible: false`. A dry run still
+finishes with its analysis report; a real merge fails before writing mosaic TIFFs
+unless the Byte fill fallback below is selected.
 
 For example, **only if `65535` was suggested for your inputs**, run:
 
@@ -429,6 +461,10 @@ value. An out-of-range value, fractional integer NoData, or a floating-point val
 requiring narrowing/rounding is rejected. Use the exact suggested string;
 `--output-nodata=-9999` with `=` also handles negative/scientific notation safely.
 
+Automatic selection uses the same collision checks as the explicit option,
+including valid samples discarded by an overlap priority. The selected value
+is applied immediately; no second run or explicit option is needed.
+
 Only invalid pixels and uncovered output areas are filled with the chosen value.
 Without pixel-size resampling, valid sample bits and the data type remain
 unchanged. The output uses scalar
@@ -449,12 +485,57 @@ One scalar value must be unused across **every band** in a multiband output.
 No pixel sampling or data-type conversion is used.
 
 If every possible value is already valid somewhere, no scalar NoData value can
-replace the mask without losing information. Keep the mask wherever missing
-pixels need representation. An entirely valid output needs neither a mask nor
-NoData, but automatic removal of redundant masks is not implemented.
-Omitting these options retains the existing merge behavior. `--suggest-nodata`
-can also accompany a real merge; it reports choices but does not apply one
-unless `--output-nodata` is supplied.
+be reserved without losing information. By default single-band merging fails in that case,
+even if all output pixels would be valid; it never silently changes the data type
+or falls back to a stored mask. Multiband merging retains its existing mask
+behavior. For multiband inputs, `--suggest-nodata` only reports choices and
+does not apply one unless `--output-nodata` is supplied.
+
+Existing merged files are not rewritten. Regenerate them into a new output
+directory to use the single-band default.
+
+### Byte fallback when all 256 values are used
+
+For single-band Byte (`uint8`) inputs, explicitly allow a constant fill if there
+is no unused NoData value:
+
+```bash
+python geotiff-merge/merge_geotiffs.py /data/input /data/merged-filled \
+  --fallback-fill 0
+```
+
+In the QGIS Python console, using the loaded `merger` script:
+
+```python
+job = merger["start"](r"D:\rasters", r"D:\merged-filled", fallback_fill=0)
+```
+
+The value must be an integer from 0 through 255. This option is only a fallback:
+inherited NoData or an automatically discovered safe value still takes
+precedence. If no safe value exists, all uncovered output pixels and masked-out
+source samples are filled with the chosen value. Valid samples, including valid
+zeros, remain unchanged. Input masks still control overlap selection and base
+image resampling before missing output cells are filled.
+
+**Filled areas become ordinary valid data.** The output has no NoData metadata,
+stored mask, or alpha band, so consumers cannot distinguish filled zeros from
+original valid zeros. Later statistics and COG/external overview generation
+include the fill value. This explicitly gives up the missing/valid distinction
+while retaining the Byte data type. It does not designate all zero pixels as
+NoData.
+
+`--fallback-fill` works with dry runs, file-size splitting, pixel-size resampling,
+and COG output. It cannot be combined with `--output-nodata`, and other data types
+or multiband inputs are rejected. Without this option, an exhausted value domain
+still fails a real merge.
+
+The report records `fallback_fill: {"value": 0, "selected": true}` when the
+fallback is chosen; `selected: false` means scalar NoData was available instead.
+Dry runs report the planned choice without writing TIFFs. When selected,
+`output_nodata` is null, `output_nodata_source` is `fallback_fill`, and each
+completed output records `filled_output_band_samples`. Verification checks every
+required valid sample, every filled pixel, and the absence of NoData and stored
+masks. The console explicitly reports that missing areas become valid data.
 
 ## What “data unchanged” means
 
@@ -476,16 +557,21 @@ there is no numerical tolerance:
 3. It checks the complete validity mask against the union of valid source
    samples. Uncovered areas remain invalid, including gaps with valid zero-valued
    samples nearby. Source nodata never overwrites valid data from another source.
+   When the explicit Byte fill fallback is selected, uncovered pixels instead
+   become valid data; verification checks their exact fill value and confirms
+   that the output has no stored validity mask.
 4. It checks CRS, transform, dimensions, dtype, band count, nodata, scales,
    offsets, units, descriptions, color interpretation, and Area/Point semantics.
-   With `--output-nodata`, it verifies the explicitly requested output NoData
-   convention instead of requiring the original NoData metadata.
+   With explicit or automatic output NoData, it verifies the selected convention
+   instead of requiring the original NoData metadata. All scalar NoData outputs
+   are checked for absence of a stored mask.
 5. It verifies that output rectangles do not overlap and cover every source
    footprint, checks actual TIFF byte lengths, and records output SHA-256 hashes.
 
 Invalid samples are absence of data: their raw payload bytes are not preserved.
-They are filled with the common nodata value, or zero plus an internal mask when
-there is no nodata value. A valid observation in another source may fill a nodata
+They are filled with the selected nodata value, the explicit Byte fallback value
+when selected, or zero plus an internal mask for multiband output without scalar
+nodata. A valid observation in another source may fill a nodata
 hole. This is a mosaic, not a byte-identical archive of the input TIFF containers.
 
 Arbitrary application tags, statistics, overviews, original compression/layout,
@@ -608,7 +694,8 @@ compression and spatial gaps can still produce extra output files.
 - With scalar nodata, differing per-band validity is supported. Masked-out data is
   normalized to nodata. Masks that mark nodata-valued pixels valid are rejected
   because that distinction cannot be encoded by the output nodata convention.
-  Without nodata, all bands must share a validity mask, stored inside the TIFF.
+  Without scalar nodata, single-band output automatically selects a safe value.
+  Multiband inputs without scalar nodata must share a validity mask, stored inside the TIFF.
   An explicit safe `--output-nodata` instead encodes per-band validity as scalar
   NoData and removes the need for that stored mask.
 - Overlap checking examines intersecting source pairs and all their overlap

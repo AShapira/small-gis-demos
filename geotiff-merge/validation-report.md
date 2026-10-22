@@ -1,5 +1,57 @@
 # GeoTIFF merge validation — 2026-09-30
 
+## Explicit Byte fill fallback — 2026-10-22
+
+The complete generated-data suite passed **107 tests** under Windows QGIS 4.2:
+**Python 3.12.13, GDAL 3.13.1, NumPy 2.4.6** (81.638 seconds). Python 3.8 syntax
+parsing and `git diff --check` also passed. Logs and the launcher are retained
+locally in `.validation/geotiff-byte-fallback/`.
+
+Nine added tests cover the explicit `--fallback-fill` / `fallback_fill` option
+for single-band Byte inputs with every value from 0 through 255 in use. Zero,
+255 and 37 fills preserve every required valid source sample while filling
+both source-mask holes and uncovered areas. Reopened outputs have no NoData,
+stored mask or alpha band; all pixels are valid. Per-output filled-sample counts
+are checked, including across size-based splits.
+
+Coverage includes CLI execution and dry runs, asynchronous API forwarding of
+zero, automatic/inherited NoData taking precedence, COGs and their overviews,
+and independent average/nearest resampling expectations. Verification rejects
+corrupted filled pixels, valid samples, added masks and added NoData metadata.
+Invalid fill values, incompatible options, other data types and multiband
+inputs are rejected. Without the option, the exhausted-domain failure remains.
+
+No production rasters or interactive QGIS rendering were tested. Filled areas
+intentionally become ordinary data and cannot be distinguished from originally
+valid samples with the same value; later statistics and overviews include them.
+
+## Single-band NoData default — 2026-10-21
+
+The complete generated-data suite passed **98 tests** under the installed
+Windows QGIS 4.2 runtime: **Python 3.12.13, GDAL 3.13.1, NumPy 2.4.6**
+(88.787 seconds). Python 3.8 syntax parsing and `git diff --check` also passed.
+
+Checks cover automatic, inherited and explicit scalar NoData; valid zeros,
+negative elevations and floating-point bit patterns; internal/external source
+masks; gaps; a shared NoData value across split outputs; COG conversion; and
+unchanged multiband mask behavior. Automatic selection excludes both rounded
+resampling results and valid samples discarded by overlap priority. Exhausted
+integer domains produce a useful dry-run report and fail a real merge without
+writing mosaic TIFFs. Verification rejects injected stored masks for all three
+scalar NoData selection modes.
+
+A generated-data integration test runs the actual overview generator against
+a merged single-band TIFF. Reopening confirms scalar NoData, no stored mask or
+mask sidecar, two discoverable external overview levels, 256 x 256 overview
+blocks, and correct valid/missing samples. The asynchronous API also passes
+without an explicit output NoData argument.
+
+The launcher and full log are retained in the ignored local directory
+`.validation/geotiff-single-band-nodata/`. Test rasters were temporary generated
+fixtures; no production rasters were rewritten. This validates the native
+Windows GDAL worker and output structure, not interactive QGIS desktop behavior
+or a measured reduction in production-file I/O. CI was not run remotely.
+
 ## Optional pixel-size update — 2026-10-13
 
 The complete generated-data suite passed **91 tests** in the installed QGIS 4.2

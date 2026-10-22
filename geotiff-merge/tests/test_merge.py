@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import runpy
 import subprocess
 import sys
 import tempfile
@@ -124,7 +125,8 @@ class MergeTests(unittest.TestCase):
                     with gdal.Open(str(self.output / item['name'])) as ds:
                         self.assertEqual(ds.RasterCount, 1)  # No physical alpha band.
                         band = ds.GetRasterBand(1)
-                        self.assertEqual(band.GetMaskFlags(), gdal.GMF_PER_DATASET)
+                        self.assertEqual(band.GetMaskFlags(), gdal.GMF_NODATA)
+                        self.assertEqual(band.GetNoDataValue(), 65535)
                         self.assertEqual((band.GetScale(), band.GetOffset(), band.GetUnitType(), band.GetDescription()),
                                          (.25, 10, 'm', 'height'))
 
@@ -354,19 +356,29 @@ class MergeTests(unittest.TestCase):
         report = json.loads((self.output / 'report.json').read_text())
         analysis = report['nodata_analysis']
         self.assertEqual(report['status'], 'analyzed')
-        self.assertTrue(analysis['default_output_uses_internal_mask'])
+        self.assertFalse(analysis['default_output_uses_internal_mask'])
         self.assertTrue(analysis['replacement_possible'])
         self.assertNotIn('0', analysis['suggestions'])
         self.assertIn('65535', analysis['suggestions'])
         self.assertEqual(analysis['invalid_source_band_samples'], 1)
         self.assertFalse(list(self.output.rglob('*.tif')))
-        self.assertIn('--output-nodata=', proc.stderr)
+        self.assertEqual(report['output_nodata'], '65535')
+        self.assertEqual(report['output_nodata_source'], 'automatic')
+        self.assertIn('Automatically selected output NoData: 65535', proc.stderr)
 
     def test_full_byte_domain_has_no_unused_nodata(self):
         self.make('full.tif', np.arange(256, dtype='uint8').reshape(16, 16))
-        report = self.run_merge('--dry-run', '--suggest-nodata')
+        report = self.run_merge('--dry-run')
+        self.assertEqual(report['status'], 'analyzed')
         self.assertFalse(report['nodata_analysis']['replacement_possible'])
         self.assertEqual(report['nodata_analysis']['suggestions'], [])
+        self.assertIsNone(report['output_nodata'])
+        self.assertFalse(list(self.output.rglob('*.tif')))
+        self.output = self.root / 'cannot-merge'
+        with self.assertRaisesRegex(merge.MergeError, 'No unused NoData value'):
+            self.run_merge()
+        self.assertFalse(list(self.output.rglob('*.tif')))
+        self.assertEqual(json.loads((self.output / 'report.json').read_text())['status'], 'failed')
 
     def test_nodata_search_finds_internal_integer_hole(self):
         for dtype, low, high, absent in [('uint8', 0, 255, 123), ('uint16', 0, 65535, 12345)]:
@@ -375,6 +387,12 @@ class MergeTests(unittest.TestCase):
                 self.output = self.root / dtype
                 report = self.run_merge('--dry-run', '--suggest-nodata')
                 self.assertEqual(report['nodata_analysis']['suggestions'], [str(absent)])
+                self.assertEqual(report['output_nodata'], str(absent))
+                self.output = self.root / (dtype + '-merged')
+                self.run_merge()
+                with gdal.Open(str(next(self.output.glob('*.tif')))) as ds:
+                    self.assertEqual(ds.GetRasterBand(1).GetNoDataValue(), absent)
+                    self.assertEqual(ds.GetRasterBand(1).GetMaskFlags(), gdal.GMF_NODATA)
 
     def test_nodata_search_int32_and_float_radix_fallback(self):
         for dtype, values in [('int32', [0, -2147483648, 2147483647, -9999, -1]),
@@ -396,6 +414,7 @@ class MergeTests(unittest.TestCase):
         b = self.make('b.tif', np.array([[3, 4]], dtype='int16'), x=4)
         before = [merge.sha256(p) for p in (a, b)]
         report = self.run_merge('--output-nodata=-9999')
+        self.assertEqual(report['output_nodata_source'], 'explicit')
         expected = np.array([[0, -9999, 2, -9999, 3, 4]], dtype='int16')
         self.assert_mosaic(expected, expected != -9999)
         with gdal.Open(str(self.output / report['outputs'][0]['name'])) as ds:
@@ -459,17 +478,21 @@ class MergeTests(unittest.TestCase):
         self.assert_mosaic(np.array([[0, 255]], dtype='uint8'), np.array([[1, 0]], dtype=bool))
 
     def test_output_nodata_verifier_rejects_stored_mask(self):
-        self.make('a.tif', np.array([[1, 2]], dtype='uint8'))
         original = merge.create_candidate
         def add_mask(path, *args, **kwargs):
             original(path, *args, **kwargs)
             with gdal.Open(str(path), gdal.GA_Update) as ds:
                 ds.CreateMaskBand(gdal.GMF_PER_DATASET)
                 ds.GetRasterBand(1).GetMaskBand().WriteArray(np.full((1, 2), 255, dtype='uint8'))
-        with patch.object(merge, 'create_candidate', side_effect=add_mask):
-            with self.assertRaisesRegex(merge.MergeError, 'without a stored mask'):
-                self.run_merge('--output-nodata=255')
-        self.assertFalse(list(self.output.glob('*.tif')))
+        for mode in ('explicit', 'automatic', 'inherited'):
+            with self.subTest(mode=mode):
+                self.output = self.root / mode
+                self.make('a.tif', np.array([[1, 2]], dtype='uint8'),
+                          nodata=255 if mode == 'inherited' else None)
+                with patch.object(merge, 'create_candidate', side_effect=add_mask):
+                    with self.assertRaisesRegex(merge.MergeError, 'without a stored mask'):
+                        self.run_merge(*(['--output-nodata=255'] if mode == 'explicit' else []))
+                self.assertFalse(list(self.output.glob('*.tif')))
 
     def test_output_nodata_converts_rgb_tuple_without_losing_valid_zeros(self):
         values = np.array([[[0, 0, 5]], [[0, 9, 6]], [[0, 0, 7]]], dtype='uint8')
@@ -575,14 +598,112 @@ class MergeTests(unittest.TestCase):
         self.assertTrue(report["all_source_valid_values_preserved"])
         self.assertEqual(before, [p.read_bytes() for p in paths])
         self.assertEqual(len(report["outputs"]), 1)
+        self.assertEqual(report['output_nodata_source'], 'inherited')
+        self.assertEqual(float(report['output_nodata']), -99)
+        with gdal.Open(str(next(self.output.glob('*.tif')))) as ds:
+            self.assertEqual(ds.GetRasterBand(1).GetMaskFlags(), gdal.GMF_NODATA)
 
-    def test_no_nodata_preserves_valid_zero_and_masks_gaps(self):
+    def test_no_nodata_preserves_valid_zero_and_fills_gaps(self):
         self.make("a.tif", np.array([[0, 1]], dtype="uint8"))
         self.make("b.tif", np.array([[2, 0]], dtype="uint8"), x=4)
-        self.run_merge()
-        self.assert_mosaic(np.array([[0, 1, 0, 0, 2, 0]], dtype="uint8"),
+        report = self.run_merge()
+        self.assertEqual(report['output_nodata'], '255')
+        self.assertEqual(report['output_nodata_source'], 'automatic')
+        expected = np.array([[0, 1, 255, 255, 2, 0]], dtype="uint8")
+        self.assert_mosaic(expected,
                            np.array([[1, 1, 0, 0, 1, 1]], dtype=bool))
+        with gdal.Open(str(next(self.output.glob('*.tif')))) as ds:
+            np.testing.assert_array_equal(ds.ReadAsArray(), expected)
+            self.assertEqual(ds.RasterCount, 1)
+            self.assertEqual(ds.GetRasterBand(1).GetNoDataValue(), 255)
+            self.assertEqual(ds.GetRasterBand(1).GetMaskFlags(), gdal.GMF_NODATA)
         self.assertFalse(list(self.output.glob("*.msk")))
+
+    def test_automatic_nodata_preserves_negative_elevations(self):
+        values = np.array([[0, -32768, -1, -9999, 5, 123]], dtype='int16')
+        valid = np.array([[1, 1, 1, 1, 1, 0]], dtype=bool)
+        self.make('a.tif', values, mask=valid)
+        report = self.run_merge()
+        self.assertEqual(report['output_nodata'], '32767')
+        self.assert_mosaic(values, valid)
+        with gdal.Open(str(next(self.output.glob('*.tif')))) as ds:
+            self.assertEqual(ds.GetRasterBand(1).DataType, gdal.GDT_Int16)
+            self.assertEqual(ds.ReadAsArray()[0, -1], 32767)
+            self.assertEqual(ds.GetRasterBand(1).GetMaskFlags(), gdal.GMF_NODATA)
+
+    def test_automatic_float_nodata_uses_nan_preserves_signed_zeros(self):
+        values = np.array([[0., -0., -10., 77.]], dtype='float32')
+        valid = np.array([[1, 1, 1, 0]], dtype=bool)
+        self.make('a.tif', values, mask=valid)
+        report = self.run_merge()
+        self.assertEqual(report['output_nodata'], 'nan')
+        self.assert_mosaic(values, valid)
+        with gdal.Open(str(next(self.output.glob('*.tif')))) as ds:
+            self.assertTrue(np.isnan(ds.ReadAsArray()[0, -1]))
+            self.assertTrue(np.isnan(ds.GetRasterBand(1).GetNoDataValue()))
+            self.assertEqual(ds.GetRasterBand(1).GetMaskFlags(), gdal.GMF_NODATA)
+
+    def test_single_band_tuple_nodata_becomes_scalar(self):
+        values = np.array([[0, 7, 2]], dtype='uint8')
+        path = self.make('a.tif', values)
+        with gdal.Open(str(path), gdal.GA_Update) as ds:
+            ds.SetMetadataItem('NODATA_VALUES', '7')
+        self.run_merge()
+        self.assert_mosaic(values, np.array([[1, 0, 1]], dtype=bool))
+        with gdal.Open(str(next(self.output.glob('*.tif')))) as ds:
+            self.assertIsNone(ds.GetMetadataItem('NODATA_VALUES'))
+            self.assertEqual(ds.GetRasterBand(1).GetMaskFlags(), gdal.GMF_NODATA)
+
+    def test_multiband_without_nodata_retains_stored_mask(self):
+        values = np.array([[[0, 7, 2]], [[3, 9, 0]]], dtype='uint8')
+        self.make('a.tif', values, mask=[[1, 0, 1]])
+        report = self.run_merge('--suggest-nodata')
+        self.assertTrue(report['nodata_analysis']['default_output_uses_internal_mask'])
+        self.assertNotIn('output_nodata', report)
+        self.assert_mosaic(values, np.broadcast_to([[True, False, True]], values.shape))
+        with gdal.Open(str(next(self.output.glob('*.tif')))) as ds:
+            self.assertEqual(ds.RasterCount, 2)
+            self.assertIsNone(ds.GetRasterBand(1).GetNoDataValue())
+            self.assertEqual(ds.GetRasterBand(1).GetMaskFlags(), gdal.GMF_PER_DATASET)
+
+    def test_async_api_automatically_selects_nodata(self):
+        self.make('a.tif', np.array([[0, 7]], dtype='uint8'), mask=[[1, 0]])
+        job = merge.start(self.source, self.output, cpus=1, ram='1GiB')
+        job.process.wait(timeout=30)
+        report = job.result()
+        self.assertEqual(report['output_nodata_source'], 'automatic')
+        self.assertEqual(report['output_nodata'], '255')
+        with gdal.Open(str(next(self.output.glob('*.tif')))) as ds:
+            np.testing.assert_array_equal(ds.ReadAsArray(), [[0, 255]])
+            self.assertEqual(ds.GetRasterBand(1).GetMaskFlags(), gdal.GMF_NODATA)
+
+    def test_merged_nodata_supports_external_tiled_overviews(self):
+        values = np.full((512, 768), 7, dtype='uint8')
+        valid = np.ones(values.shape, dtype=bool)
+        valid[:256, :256] = False
+        self.make('a.tif', values, mask=valid)
+        report = self.run_merge('--cpus', '1')
+        generator = runpy.run_path(str(SCRIPT.parents[1] / 'overview-generator' / 'overview-generator.py'))
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            result = generator['run'](self.output, workers=1, threads_per_file=1,
+                                      resampling='average', min_free_gb=0)
+        self.assertEqual(result['phase'], 'finished')
+        path = self.output / report['outputs'][0]['name']
+        self.assertTrue(Path(str(path) + '.ovr').is_file())
+        self.assertFalse(list(self.output.glob('*.msk*')))
+        with gdal.Open(str(path)) as ds:
+            self.assertEqual(ds.RasterCount, 1)
+            band = ds.GetRasterBand(1)
+            self.assertEqual(band.GetNoDataValue(), 0)
+            self.assertEqual(band.GetMaskFlags(), gdal.GMF_NODATA)
+            self.assertEqual(band.GetOverviewCount(), 2)
+            for i in range(band.GetOverviewCount()):
+                ov = band.GetOverview(i)
+                self.assertEqual(ov.GetBlockSize(), [256, 256])
+                self.assertEqual(ov.GetMaskFlags(), gdal.GMF_NODATA)
+                pixels = ov.ReadAsArray()
+                self.assertEqual(pixels[0, 0], 0)
+                self.assertEqual(pixels[-1, -1], 7)
 
     def test_identical_overlap_and_nodata_fallback(self):
         a = np.array([[1, -99, 3]], dtype="int16")
@@ -656,7 +777,7 @@ class MergeTests(unittest.TestCase):
         self.run_merge()
         self.assert_mosaic(a, np.array([[1, 0, 1]], dtype=bool))
 
-    def test_external_mask_hashed_and_converted_to_internal(self):
+    def test_external_mask_hashed_and_converted_to_nodata(self):
         p = self.make("a.tif", np.array([[0, 7]], dtype="uint8"))
         with gdal.config_options({"GDAL_TIFF_INTERNAL_MASK": "NO"}):
             with gdal.Open(str(p), gdal.GA_Update) as ds:
@@ -665,6 +786,10 @@ class MergeTests(unittest.TestCase):
         report = self.run_merge()
         self.assertEqual(len(report["inputs"][0]["dependencies"]), 2)
         self.assert_mosaic(np.array([[0, 7]], dtype="uint8"), np.array([[1, 0]], dtype=bool))
+        with gdal.Open(str(next(self.output.glob('*.tif')))) as ds:
+            np.testing.assert_array_equal(ds.ReadAsArray(), [[0, 255]])
+            self.assertEqual(ds.GetRasterBand(1).GetMaskFlags(), gdal.GMF_NODATA)
+        self.assertFalse(list(self.output.glob('*.msk')))
 
     def test_band_metadata(self):
         p = self.make("a.tif", np.array([[10, 20]], dtype="uint16"))
@@ -697,6 +822,7 @@ class MergeTests(unittest.TestCase):
 
     def test_no_compression(self):
         values = np.arange(256 * 256, dtype="uint16").reshape(256, 256)
+        values[-1, -1] = 65534  # Leave one representable value available for NoData.
         self.make("a.tif", values)
         report = self.run_merge("--compression", "none", "--max-size", "200KB")
         self.assertTrue(all(o["bytes"] <= 220000 for o in report["outputs"]))
@@ -713,6 +839,9 @@ class MergeTests(unittest.TestCase):
             p = self.output / o["name"]
             self.assertEqual(p.stat().st_size, o["bytes"])
             self.assertEqual(merge.sha256(p), o["sha256"])
+            with gdal.Open(str(p)) as ds:
+                self.assertEqual(ds.GetRasterBand(1).GetNoDataValue(), int(report['output_nodata']))
+                self.assertEqual(ds.GetRasterBand(1).GetMaskFlags(), gdal.GMF_NODATA)
 
     def test_measured_size_retry_after_bad_estimate(self):
         a = np.random.default_rng(3).integers(0, 65535, (512, 512), dtype="uint16")
@@ -739,7 +868,7 @@ class MergeTests(unittest.TestCase):
         self.assertFalse(list(self.output.glob("*.tif")))
         self.assertEqual(json.loads((self.output / "report.json").read_text())["status"], "failed")
 
-    def test_verifier_detects_corrupted_empty_area_mask(self):
+    def test_verifier_detects_corrupted_empty_area_nodata(self):
         self.make("a.tif", np.array([[1]], dtype="uint8"))
         self.make("b.tif", np.array([[2]], dtype="uint8"), x=2)
         original = merge.create_candidate
@@ -747,7 +876,7 @@ class MergeTests(unittest.TestCase):
         def corrupt(path, *args, **kwargs):
             original(path, *args, **kwargs)
             with gdal.Open(str(path), gdal.GA_Update) as ds:
-                ds.GetRasterBand(1).GetMaskBand().WriteArray(np.full((1, 3), 255, dtype="uint8"))
+                ds.GetRasterBand(1).WriteArray(np.array([[7]], dtype='uint8'), xoff=1)
 
         with patch.object(merge, "create_candidate", side_effect=corrupt):
             with self.assertRaisesRegex(merge.MergeError, "validity mask or empty area"):
