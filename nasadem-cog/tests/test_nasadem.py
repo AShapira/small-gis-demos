@@ -36,6 +36,8 @@ class MergerTests(unittest.TestCase):
         self.output = self.root / "outputs"
         self.tiles = []
         self.n = 2
+        self.data_type = "Int16"
+        self.nodata = -32768
         merger.configure()
         crs = osr.SpatialReference()
         crs.ImportFromEPSG(4326)
@@ -43,15 +45,19 @@ class MergerTests(unittest.TestCase):
         merger.configure()
 
     def tile(self, west=0, south=0, values=None, name=None, missing=False, mask=None,
-             simple=False, nodata=-32768, step_error=0):
+             simple=False, nodata=None, step_error=0, data_type=None):
         name = name or f"height_{len(self.tiles)}.tif"
         path = self.inputs / name
         size = self.n + 1
+        data_type = data_type or self.data_type
+        dtype = "float32" if data_type == "Float32" else "int16"
+        nodata = self.nodata if nodata is None else nodata
         if values is None:
-            values = np.full((size, size), len(self.tiles) + 1, dtype="int16")
-        values = np.asarray(values, dtype="int16")
+            values = np.full((size, size), len(self.tiles) + 1, dtype=dtype)
+        values = np.asarray(values, dtype=dtype)
         if not missing:
-            ds = gdal.GetDriverByName("GTiff").Create(str(path), size, size, 1, gdal.GDT_Int16)
+            ds = gdal.GetDriverByName("GTiff").Create(str(path), size, size, 1,
+                                                     gdal.GetDataTypeByName(data_type))
             ds.SetProjection(self.wkt)
             ds.SetGeoTransform((west - .5 / self.n, (1 + step_error) / self.n, 0,
                                 south + 1 + .5 / self.n, 0, -1 / self.n))
@@ -74,8 +80,8 @@ class MergerTests(unittest.TestCase):
         root = ET.Element("VRTDataset", rasterXSize=str(360 * n + 1), rasterYSize=str(180 * n + 1))
         ET.SubElement(root, "SRS").text = self.wkt
         ET.SubElement(root, "GeoTransform").text = f"{-180 - .5/n},{1/n},0,{90+.5/n},0,{-1/n}"
-        band = ET.SubElement(root, "VRTRasterBand", dataType="Int16", band="1")
-        ET.SubElement(band, "NoDataValue").text = "-32768"
+        band = ET.SubElement(root, "VRTRasterBand", dataType=self.data_type, band="1")
+        ET.SubElement(band, "NoDataValue").text = str(self.nodata)
         for path, west, south, simple, mask in self.tiles:
             node = ET.SubElement(band, "SimpleSource" if simple else "ComplexSource")
             ET.SubElement(node, "SourceFilename", relativeToVRT="1").text = path.name
@@ -84,7 +90,7 @@ class MergerTests(unittest.TestCase):
             ET.SubElement(node, "DstRect", xOff=str((west+180)*n), yOff=str((89-south)*n),
                           xSize=str(n+1), ySize=str(n+1))
             if not simple and not mask:
-                ET.SubElement(node, "NODATA").text = "-32768"
+                ET.SubElement(node, "NODATA").text = str(self.nodata)
             if mask:
                 ET.SubElement(node, "UseMaskBand").text = "true"
         ET.ElementTree(root).write(self.vrt, encoding="UTF-8", xml_declaration=True)
@@ -110,6 +116,137 @@ class MergerTests(unittest.TestCase):
             x = round((lon - gt[0]) / gt[1] - .5)
             y = round((lat - gt[3]) / gt[5] - .5)
             return ds.GetRasterBand(1).ReadAsArray(x, y, 1, 1)[0, 0]
+
+    def test_float32_exact_values_metadata_predictor_and_resume(self):
+        self.data_type = "Float32"
+        values = np.array([[-430.125, 0, 12.125],
+                           [np.nextafter(np.float32(1), np.float32(2)), -32768, 65536.25],
+                           [3.1415927, -0.00001, 17.375]], dtype="float32")
+        self.tile(values=values)
+        root = self.write_vrt()
+        metadata = ET.SubElement(root, "Metadata")
+        ET.SubElement(metadata, "MDI", key="VERTICAL_DATUM").text = "WGS84 ellipsoid"
+        ET.ElementTree(root).write(self.vrt)
+        options = ("--block-size", "1", "--output-prefix", "SRTM_GL1_Ellip", "--verify")
+        self.assertEqual(self.run_merge(*options), 0)
+        path, = self.output.glob("*.tif")
+        self.assertEqual(path.name, "SRTM_GL1_Ellip_N00E000_N00E000.tif")
+        with merger.opened(path) as ds:
+            self.assertEqual(ds.GetRasterBand(1).DataType, gdal.GDT_Float32)
+            self.assertEqual(ds.GetMetadataItem("PREDICTOR", "IMAGE_STRUCTURE"), "3")
+            self.assertEqual(ds.GetMetadataItem("VERTICAL_DATUM"), "WGS84 ellipsoid")
+            np.testing.assert_array_equal(ds.ReadAsArray(), values)
+            self.assertEqual(ds.GetRasterBand(1).GetMaskBand().ReadAsArray()[1, 1], 0)
+        before = path.stat().st_mtime_ns
+        self.assertEqual(self.run_merge(*options), 0)
+        self.assertEqual(path.stat().st_mtime_ns, before)
+        record, = self.state()["blocks"].values()
+        self.assertEqual(record["action"], "skipped")
+        self.assertEqual(record["verification"]["pixels_checked"], 9)
+        with self.assertRaisesRegex(merger.InputError, "different inputs/options"):
+            self.run_merge("--block-size", "1", "--output-prefix", "OTHER")
+
+    def test_float32_shared_edges_nodata_and_uncovered_pixels(self):
+        self.data_type = "Float32"
+        self.tile(9, 0, np.full((3, 3), 12.375))
+        values = np.full((3, 3), -9.125)
+        values[1, 0] = -32768
+        self.tile(10, 0, values)
+        self.write_vrt()
+        self.assertEqual(self.run_merge("--verify"), 0)
+        paths = sorted(self.output.glob("*.tif"))
+        self.assertEqual(len(paths), 2)
+        for path in paths:
+            self.assertEqual(self.sample(path, 10, 1), -9.125)
+            self.assertEqual(self.sample(path, 10, .5), 12.375)
+        self.assertEqual(self.sample(paths[0], 5, 5), -32768)
+
+    def test_float32_fractional_nodata_and_mask(self):
+        self.data_type = "Float32"
+        self.nodata = -9999.25
+        self.tile(values=np.full((3, 3), 4.375))
+        mask = np.ones((3, 3))
+        mask[1, 1] = 0
+        self.tile(values=np.full((3, 3), 9.125), mask=mask)
+        self.write_vrt()
+        self.assertEqual(self.run_merge("--verify"), 0)
+        path, = self.output.glob("*.tif")
+        self.assertEqual(self.sample(path, .5, .5), 4.375)
+        self.assertEqual(self.sample(path, 5, 5), self.nodata)
+        with merger.opened(path) as ds:
+            self.assertEqual(ds.GetRasterBand(1).GetNoDataValue(), self.nodata)
+
+    def test_float32_invalid_nodata_and_mixed_types_rejected(self):
+        self.data_type = "Float32"
+        self.tile()
+        for value in (None, "nan", "inf", "1e40"):
+            with self.subTest(nodata=value):
+                root = self.write_vrt()
+                band = root.find("VRTRasterBand")
+                if value is None:
+                    band.remove(band.find("NoDataValue"))
+                else:
+                    band.find("NoDataValue").text = value
+                ET.ElementTree(root).write(self.vrt)
+                with self.assertRaisesRegex(merger.InputError, "finite Float32 NoData"):
+                    self.run_merge()
+        self.tile(1, 0, data_type="Int16")
+        self.write_vrt()
+        with self.assertRaisesRegex(merger.InputError, "compatible.*Float32"):
+            self.run_merge()
+
+    def test_float32_one_ulp_corruption_is_detected(self):
+        self.data_type = "Float32"
+        self.tile(values=np.full((3, 3), 1.25))
+        self.write_vrt()
+        self.assertEqual(self.run_merge("--block-size", "1"), 0)
+        path, = self.output.glob("*.tif")
+        ds = gdal.OpenEx(str(path), gdal.OF_RASTER | gdal.OF_UPDATE,
+                         open_options=["IGNORE_COG_LAYOUT_BREAK=YES"])
+        changed = np.nextafter(np.float32(1.25), np.float32(2))
+        ds.GetRasterBand(1).WriteArray(np.array([[changed]], dtype="float32"), 0, 0)
+        merger.close(ds)
+        ds = None
+        inv = merger.read_inventory(self.vrt)
+        block, = merger.plan_blocks(inv, 1, 1)
+        with merger.opened(path) as ds:
+            with self.assertRaisesRegex(merger.RunError, "Pixel/NoData"):
+                merger.verify_pixels(ds, inv, block, threading.Event(), lambda _: None)
+
+    def test_float32_overviews_and_dry_run(self):
+        self.data_type = "Float32"
+        self.n = 64
+        self.tile(values=np.arange(65 * 65).reshape(65, 65) * .125 + .03125)
+        self.write_vrt()
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(merger.run(self.args("--dry-run", "--output-prefix", "SRTM")), 0)
+        report = json.loads(out.getvalue())
+        self.assertEqual(report["data_type"], "Float32")
+        self.assertEqual(report["output_prefix"], "SRTM")
+        self.assertFalse(self.output.exists())
+        self.assertEqual(self.run_merge("--verify", "--build-overviews"), 0)
+        path, = self.output.glob("*.tif")
+        with merger.opened(path) as ds:
+            band = ds.GetRasterBand(1)
+            self.assertEqual(band.GetOverviewCount(), 1)
+            overview = band.GetOverview(0)
+            self.assertEqual(overview.DataType, gdal.GDT_Float32)
+            reference = gdal.Translate("", ds, format="MEM", width=overview.XSize,
+                                       height=overview.YSize, resampleAlg="average", overviewLevel="NONE")
+            np.testing.assert_allclose(overview.ReadAsArray(), reference.ReadAsArray(), rtol=1e-6, atol=1e-6)
+            merger.close(reference)
+
+    def test_output_prefix_rejects_paths_and_preserves_default_resume_config(self):
+        for prefix in ("../outside", "a/b", "a\\b", "/tmp/output", ""):
+            with self.subTest(prefix=prefix), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    self.args("--output-prefix", prefix)
+        self.tile()
+        self.write_vrt()
+        self.assertEqual(self.run_merge(), 0)
+        self.assertEqual(self.state()["identity"]["config"], {
+            "block_size": 10, "min_tiles_per_block": 1, "build_overviews": False,
+            "creation": "DEFLATE-6-STANDARD-512-IF_SAFER-v1"})
 
     def test_defaults_and_dry_run_do_not_write(self):
         self.tile(name="גובה tile.tif")

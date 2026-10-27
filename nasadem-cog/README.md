@@ -1,7 +1,7 @@
-# NASADEM COG merger
+# NASADEM / SRTM COG merger
 
-Create Cloud Optimized GeoTIFF blocks from an existing local NASADEM VRT and
-its 1° height tiles using any positive whole-degree divisor of 360. The default
+Create Cloud Optimized GeoTIFF blocks from an existing local Int16 NASADEM or
+Float32 SRTM VRT and its 1° height tiles using any positive whole-degree divisor of 360. The default
 is 10°; 360° creates one whole-world COG. Run the single file
 `create_nasadem_cogs.py` in the **QGIS/OSGeo4W command shell on Windows**.
 It uses QGIS's GDAL, NumPy, and GDAL COG validator; no plugin or pip installation
@@ -41,6 +41,31 @@ works in that shell. Do not install a second GDAL into QGIS with pip.
 Development validation uses Windows QGIS 4.2 / Python 3.12 / GDAL 3.13.
 The CI tests also exercise the system GDAL supplied by Ubuntu.
 
+## Float32 SRTM with WGS84 ellipsoidal heights
+
+[OpenTopography SRTM GL1 Global 30m Ellipsoidal](https://portal.opentopography.org/raster?opentopoID=OTSRTM.082016.4326.1)
+provides Float32 GeoTIFF tiles and a VRT at
+`https://opentopography.s3.sdsc.edu/raster/SRTM_GL1_Ellip/`.
+Keep the VRT's referenced directory structure, or use a local subset VRT that
+references only the downloaded tiles. The provider's full VRT is named
+`SRTM_GL1_Ellip_srtm.vrt` and references `SRTM_GL1_Ellip_srtm/`.
+
+```cmd
+python create_nasadem_cogs.py ^
+  --vrt-file "D:\Maps\SRTM_GL1_Ellip\SRTM_GL1_Ellip_srtm.vrt" ^
+  --output-dir "D:\Maps\SRTM_GL1_Ellip\COG_10deg" ^
+  --output-prefix SRTM_GL1_Ellip ^
+  --block-size 10 --workers 2 --verify --build-overviews
+```
+
+The merger detects the VRT data type and preserves Float32 base values exactly,
+including fractional and negative elevations. It does not convert heights or
+infer a vertical datum from EPSG:4326. OpenTopography documents this particular
+SRTM collection as WGS84 ellipsoidal; ordinary SRTM/NASADEM collections can have
+EGM96 heights. Use inputs with a consistent height reference and keep that
+provenance with the data. Default-domain metadata on the input VRT, including
+an explicit `VERTICAL_DATUM` entry when present, is retained in the outputs.
+
 ## Parameters
 
 | Option | Default | Meaning |
@@ -54,6 +79,7 @@ The CI tests also exercise the system GDAL supplied by Ubuntu.
 | `--disk-space-policy {warn,error}` | `warn` | Warn and continue if estimated space is insufficient or free space cannot be queried. Use `error` to stop before starting a block in these cases. |
 | `--min-tiles-per-block` | `1` | Minimum distinct available nominal 1° source tiles belonging to a block. Boundary-only neighbors do not inflate the count. |
 | `--filename-filter` | None | Case-insensitive substring of the basename, including extension. For example `"n32e"` selects northern 32° tiles in eastern longitudes. |
+| `--output-prefix` | `NASADEM` | Output filename prefix; use `SRTM_GL1_Ellip` for the ellipsoidal SRTM collection. Letters, digits, `_`, and `-` only, starting with a letter or digit. |
 | `--dry-run` | Off | Print source counts, missing files, exact blocks/dimensions, tile counts, estimated compressed output and temporary sizes, working-space reservations, and disk policy; create no outputs or logs. |
 
 Valid block sizes are **1, 2, 3, 4, 5, 6, 8, 9, 10, 12, 15, 18, 20, 24,
@@ -67,12 +93,16 @@ VRT, available files, filter, and minimum count determine it.
 
 ## Grid, seams, and missing coverage
 
-The tool accepts ordinary single-band Int16 NASADEM height VRTs in WGS 84
+The tool accepts ordinary single-band Int16 or Float32 height VRTs in WGS 84
 (EPSG:4326), with matching north-up square pixels, explicit matching NoData,
 and 1° TIFFs containing both endpoint samples. At native one-arcsecond spacing,
 each source has **3,601 × 3,601** samples and each 10° output has
 **36,001 × 36,001** samples. Resolution is read from the input, not resampled.
 Rotated, warped, derived, scaled, remote, and incompatible inputs are rejected.
+Every selected source must have the VRT's data type; mixed Int16/Float32 inputs
+are rejected. NoData must be explicit and finite, representable in the input
+type, and match the source tiles. Float32 NoData is normalized to Float32
+precision and can be fractional; NaN/infinite NoData is not supported.
 
 Both grid axes start at -180° and advance by the block size. Latitude bands
 are then clipped to -90..90°, giving symmetric polar edge blocks. This preserves
@@ -103,6 +133,8 @@ Base pixels are never averaged or reprojected.
 its final endpoint samples are at 10° north/east. Similarly,
 `NASADEM_S10W020_S01W011.tif` spans nominal coordinates -20..-10 longitude
 and -10..0 latitude, including the boundary samples.
+`--output-prefix SRTM_GL1_Ellip` changes only the filename prefix, for example
+`SRTM_GL1_Ellip_N30E030_N39E039.tif`.
 
 With `--block-size 360`, the single output is
 `NASADEM_S90W180_N89E179.tif`. It spans -180..180° longitude and -90..90°
@@ -126,7 +158,8 @@ including ocean areas without source coverage, also remain NoData.
 
 ## COGs, verification, and resources
 
-Outputs use DEFLATE level 6, integer predictor 2 (`PREDICTOR=STANDARD`),
+Outputs use DEFLATE level 6, integer predictor 2 (`PREDICTOR=STANDARD`) for Int16
+or floating-point predictor 3 (`PREDICTOR=FLOATING_POINT`) for Float32,
 512 × 512 tiles, and `BIGTIFF=IF_SAFER`. BigTIFF selection is GDAL's heuristic.
 Overviews are explicitly disabled unless requested. When enabled, average
 overviews are created at powers of two until the largest dimension is at most
@@ -195,7 +228,9 @@ Repeat the same command to resume. VRT content and path, selected source
 paths/sizes/modification times (including GDAL-reported dependencies), and
 output-affecting options must match. Changing workers, disk-space policy, or adding `--verify` is
 allowed. Changed input files, newly available formerly missing files, changed
-block size/filter/minimum/overview options require a new output directory.
+block size/filter/minimum/overview/prefix options require a new output directory.
+Existing Int16 runs with the default `NASADEM` prefix retain their original
+resume identity and can be resumed after this Float32 extension.
 Source size/time signatures detect ordinary changes; they are not content hashes
 or protection against edits that deliberately preserve metadata.
 

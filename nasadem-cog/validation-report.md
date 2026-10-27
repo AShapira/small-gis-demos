@@ -193,3 +193,48 @@ Evidence is retained under ignored `.validation/storage-estimates/`:
 `native-tests.log`, `real-estimates.log`, and `validation-summary.json`.
 Python 3.9 syntax parsing and `git diff --check` passed. Remote CI has not been
 run for this change.
+
+## Float32 SRTM extension — 2026-10-27
+
+Native Windows QGIS 4.2 validation used Python 3.12.13, GDAL 3.13.1 and NumPy
+2.4.6. All **50 tests passed** (43 existing tests and 7 added tests). The new
+cases exercise fractional/negative Float32 values, one-ULP corruption detection,
+finite fractional NoData, masks, shared edges, mixed-type rejection, overviews,
+prefix validation, resume, and the unchanged default Int16 configuration identity.
+
+A real-data test used OpenTopography SRTM GL1 Ellipsoidal tiles
+`N33E036_wgs84.tif` and `N33E037_wgs84.tif`. A 2° output covering 36–38° E,
+32–34° N (including uncovered NoData) was generated with Float32, DEFLATE,
+predictor 3, 512-pixel blocks, and four internal average overviews.
+
+| Output | Dimensions | Bytes | Exact base-pixel checks |
+| --- | --- | --- | --- |
+| `SRTM_GL1_Ellip_N32E036_N33E037.tif` | 7,201 × 7,201 | 38,168,710 | 51,854,401 |
+
+Every output base value and validity flag matched the independent composition
+of original tiles. The full GDAL COG validator reported no errors or warnings.
+The output retained the input VRT's explicit `VERTICAL_DATUM=WGS84 ellipsoid`
+metadata. Height values were not transformed.
+
+Evidence is under ignored `.validation/srtm-float32/`: `tests.log`,
+`real-two-tiles.vrt`, `real-merge.log`, and `real-cog/state.json`.
+This section records native GDAL validation, not a QGIS desktop rendering test.
+Release CI results are tracked separately in GitHub Actions.
+
+The requested Israel/Lebanon/Syria/Jordan collection was also checked locally:
+49 tile positions selected by intersection with Natural Earth 1:10m country
+polygons, with zero missing references in a native merger dry run. All
+635,392,849 effective source pixels decoded successfully, downloaded SHA-256
+hashes matched readback, and interior windows from all 49 sources matched
+the regional VRT. The provider's multipart placeholder ETags were not treated
+as content checksums.
+
+One provider tile, `N32E038_wgs84.tif`, contains only zeros and lacks NoData.
+The original remains unchanged in the local data folder. The curated VRT uses
+a separately documented replacement derived from standard SRTM GL1 and the
+OSGeo EGM96 15-minute grid. All 12,967,201 replacement values matched an
+independent `h = H + N` calculation after Float32 rounding; four neighboring
+published samples agreed within 0.000032 m. This data repair is separate from
+the merger: its source-type and explicit-NoData requirements remain enforced.
+The dataset's manifest and `provenance/repair/` retain the evidence; downloaded
+rasters are retained outside the repository and are not included in the release.

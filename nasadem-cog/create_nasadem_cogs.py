@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Merge a local NASADEM VRT into degree-sized COGs in the QGIS/OSGeo4W shell."""
+"""Merge local Int16 NASADEM or Float32 SRTM VRTs into degree-sized COGs."""
 import argparse
 from collections import OrderedDict
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
@@ -11,6 +11,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import sys
@@ -30,7 +31,7 @@ except ImportError as exc:
 SCHEMA = 1
 EDGE = 512
 HEADROOM = 1024 ** 3
-EMPTY_TILE_BYTES = 2048  # Approximate DEFLATE size of a constant 512 x 512 Int16 tile.
+EMPTY_TILE_BYTES = 2048  # Approximate DEFLATE size of a constant 512 x 512 tile.
 STORAGE_MARGIN = 1.10
 TOLERANCE = 1e-5  # Pixels, including longitudes far from the VRT origin.
 
@@ -154,7 +155,7 @@ class Inventory:
     vrt: Path
     transform: tuple
     projection: str
-    nodata: int
+    nodata: float
     intervals: int
     metadata: dict
     band_metadata: dict
@@ -162,6 +163,26 @@ class Inventory:
     sources: list
     missing: list
     identity: dict
+    data_type: str = "Int16"
+
+    @property
+    def numpy_dtype(self):
+        return np.float32 if self.data_type == "Float32" else np.int16
+
+    @property
+    def predictor(self):
+        return "FLOATING_POINT" if self.data_type == "Float32" else "STANDARD"
+
+
+def parse_nodata(text, data_type):
+    value = float(text)
+    if data_type == "Int16":
+        if not math.isfinite(value) or value != int(value) or not -32768 <= value <= 32767:
+            raise InputError("An explicit Int16 NoData value is required")
+        return int(value)
+    if not math.isfinite(value) or abs(value) > float(np.finfo(np.float32).max):
+        raise InputError("An explicit finite Float32 NoData value is required")
+    return float(np.float32(value))
 
 
 def configure():
@@ -188,9 +209,11 @@ def read_inventory(vrt_file, filename_filter=None, cancel=None, progress=None):
     if any(c.tag not in {"SRS", "GeoTransform", "Metadata", "VRTRasterBand"} for c in root):
         raise InputError("Unsupported VRT dataset element (for example a dataset mask or GCPs)")
     bands = root.findall("VRTRasterBand")
-    if len(bands) != 1 or bands[0].get("dataType") != "Int16" or bands[0].get("subClass"):
-        raise InputError("Expected one ordinary Int16 NASADEM height band")
+    if (len(bands) != 1 or bands[0].get("dataType") not in ("Int16", "Float32")
+            or bands[0].get("subClass")):
+        raise InputError("Expected one ordinary Int16 or Float32 height band")
     band = bands[0]
+    data_type = band.get("dataType")
     allowed = {"NoDataValue", "ColorInterp", "Metadata", "Description", "UnitType",
                "Scale", "Offset", "SimpleSource", "ComplexSource"}
     if any(child.tag not in allowed for child in band):
@@ -208,10 +231,7 @@ def read_inventory(vrt_file, filename_filter=None, cancel=None, progress=None):
         raise InputError("Expected square pixels with an integer number of intervals per degree")
     integer((gt[0] + gt[1] / 2) * intervals, "VRT longitude sample origin")
     integer((gt[3] + gt[5] / 2) * intervals, "VRT latitude sample origin")
-    nd = float(band.findtext("NoDataValue", "nan"))
-    if not math.isfinite(nd) or nd != int(nd) or not -32768 <= nd <= 32767:
-        raise InputError("An explicit Int16 NoData value is required")
-    nodata = int(nd)
+    nodata = parse_nodata(band.findtext("NoDataValue", "nan"), data_type)
     vrt_width, vrt_height = int(root.get("rasterXSize")), int(root.get("rasterYSize"))
     sources, missing, records = [], [], []
     selected = 0
@@ -252,7 +272,8 @@ def read_inventory(vrt_file, filename_filter=None, cancel=None, progress=None):
         if dst[0] + dst[2] > vrt_width or dst[1] + dst[3] > vrt_height:
             raise InputError(f"Source destination lies outside the VRT: {text}")
         skip_nodata = node.find("NODATA") is not None
-        if skip_nodata and (node.tag != "ComplexSource" or float(node.findtext("NODATA")) != nodata):
+        if skip_nodata and (node.tag != "ComplexSource"
+                            or parse_nodata(node.findtext("NODATA"), data_type) != nodata):
             raise InputError(f"Unsupported source NoData mapping: {text}")
         mask_text = node.findtext("UseMaskBand", "false").lower()
         if mask_text not in ("true", "false", "1", "0"):
@@ -268,10 +289,10 @@ def read_inventory(vrt_file, filename_filter=None, cancel=None, progress=None):
             with opened(source_path) as ds:
                 size = intervals + 1
                 b = ds.GetRasterBand(1)
-                if (ds.RasterCount != 1 or b.DataType != gdal.GDT_Int16
+                if (ds.RasterCount != 1 or b.DataType != gdal.GetDataTypeByName(data_type)
                         or ds.RasterXSize != size or ds.RasterYSize != size
                         or b.GetNoDataValue() != nodata or not wgs84(ds.GetProjection())):
-                    raise InputError(f"Expected a compatible 1° node-grid Int16 tile: {source_path}")
+                    raise InputError(f"Expected a compatible 1° node-grid {data_type} tile: {source_path}")
                 sg = ds.GetGeoTransform()
                 if (sg[2] != 0 or sg[4] != 0
                         or abs(sg[1] / gt[1] - 1) * intervals > TOLERANCE
@@ -324,7 +345,7 @@ def read_inventory(vrt_file, filename_filter=None, cancel=None, progress=None):
                 "vrt_stat": stamp(path), "filter": filename_filter,
                 "sources": records}
     return Inventory(path, gt, projection, nodata, intervals, metadata, band_metadata,
-                     props, sources, list(dict.fromkeys(missing)), identity)
+                     props, sources, list(dict.fromkeys(missing)), identity, data_type)
 
 
 def coordinate(lat, lon):
@@ -349,7 +370,14 @@ def block_size_argument(value):
         raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
-def plan_blocks(inv, block_size, minimum):
+def output_prefix_argument(value):
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", value):
+        raise argparse.ArgumentTypeError("Output prefix must contain only letters, digits, '-' or '_', "
+                                         "starting with a letter or digit")
+    return value
+
+
+def plan_blocks(inv, block_size, minimum, output_prefix="NASADEM"):
     validate_block_size(block_size)
     groups = {}
     for source in inv.sources:
@@ -369,7 +397,7 @@ def plan_blocks(inv, block_size, minimum):
         height = (north - south) * inv.intervals + 1
         window = col, row, width, height
         contributors = [source for source in inv.sources if intersection(window, source.dst)]
-        name = f"NASADEM_{coordinate(south, west)}_{coordinate(north - 1, east - 1)}.tif"
+        name = f"{output_prefix}_{coordinate(south, west)}_{coordinate(north - 1, east - 1)}.tif"
         result.append(Block(name, (west, south, east, north), window, contributors,
                             len(paths), len(paths) >= minimum))
     return result
@@ -394,7 +422,7 @@ def write_block_vrt(path, inv, block):
     ET.SubElement(root, "SRS").text = inv.projection
     ET.SubElement(root, "GeoTransform").text = ",".join(map(repr, block_transform(inv, block)))
     add_metadata(root, inv.metadata)
-    band = ET.SubElement(root, "VRTRasterBand", dataType="Int16", band="1")
+    band = ET.SubElement(root, "VRTRasterBand", dataType=inv.data_type, band="1")
     ET.SubElement(band, "NoDataValue").text = str(inv.nodata)
     add_metadata(band, inv.band_metadata)
     for key, value in inv.band_properties.items():
@@ -456,7 +484,7 @@ def verify_pixels(ds, inv, block, cancel, progress):
                 check_cancel(cancel)
                 w, h = min(EDGE, width - x), min(EDGE, height - y)
                 region = block.window[0] + x, block.window[1] + y, w, h
-                expected = np.full((h, w), inv.nodata, dtype=np.int16)
+                expected = np.full((h, w), inv.nodata, dtype=inv.numpy_dtype)
                 for source in block.sources:
                     common = intersection(region, source.footprint)
                     if common is None:
@@ -506,7 +534,7 @@ def verify_output(path, inv, block, overviews, exhaustive, cancel, progress=lamb
         width, height = block.window[2:]
         expected_gt = block_transform(inv, block)
         if (ds.RasterCount != 1 or ds.RasterXSize != width or ds.RasterYSize != height
-                or b.DataType != gdal.GDT_Int16 or b.GetNoDataValue() != inv.nodata
+                or b.DataType != gdal.GetDataTypeByName(inv.data_type) or b.GetNoDataValue() != inv.nodata
                 or not wgs84(ds.GetProjection())
                 or any(abs(a - c) / inv.transform[1] > TOLERANCE
                        for a, c in zip(ds.GetGeoTransform(), expected_gt))):
@@ -515,7 +543,7 @@ def verify_output(path, inv, block, overviews, exhaustive, cancel, progress=lamb
             raise RunError(f"Output is not a 512-pixel tiled COG: {path}")
         if ds.GetMetadataItem("COMPRESSION", "IMAGE_STRUCTURE") != "DEFLATE":
             raise RunError(f"Output compression mismatch: {path}")
-        if ds.GetMetadataItem("PREDICTOR", "IMAGE_STRUCTURE") != "2":
+        if ds.GetMetadataItem("PREDICTOR", "IMAGE_STRUCTURE") != ("3" if inv.data_type == "Float32" else "2"):
             raise RunError(f"Output predictor mismatch: {path}")
         for key, value in inv.metadata.items():
             if ds.GetMetadataItem(key) != value:
@@ -572,7 +600,7 @@ def storage_estimate(block, overviews):
                                  / source_info[path][1] for path, area in source_areas.items()))
     empty_pixels = max(0, pixels - sum(covered_areas.values()))
     tiles = math.ceil(width / EDGE) * math.ceil(height / EDGE)
-    # Empty coverage compresses to small constant tiles, not raw Int16 pixels.
+    # Empty coverage compresses to small constant tiles, not raw pixels.
     base_bytes = (source_bytes + math.ceil(empty_pixels / (EDGE * EDGE)) * EMPTY_TILE_BYTES
                   + tiles * 16 + 65536)
     dims = overview_dimensions(width, height) if overviews else []
@@ -691,7 +719,7 @@ def process_block(inv, block, output, overviews, exhaustive, cancel, progress, a
     vrt = staging / "block.vrt"
     candidate = staging / "candidate.tif"
     write_block_vrt(vrt, inv, block)
-    options = ["COMPRESS=DEFLATE", "LEVEL=6", "PREDICTOR=STANDARD", "BLOCKSIZE=512",
+    options = ["COMPRESS=DEFLATE", "LEVEL=6", f"PREDICTOR={inv.predictor}", "BLOCKSIZE=512",
                "BIGTIFF=IF_SAFER", "NUM_THREADS=1", "STATISTICS=NO",
                "OVERVIEWS=IGNORE_EXISTING" if overviews else "OVERVIEWS=NONE"]
     if overviews:
@@ -733,7 +761,10 @@ def process_block(inv, block, output, overviews, exhaustive, cancel, progress, a
 def prepare_state(output, inv, blocks, args):
     config = {"block_size": args.block_size, "min_tiles_per_block": args.min_tiles_per_block,
               "build_overviews": args.build_overviews,
-              "creation": "DEFLATE-6-STANDARD-512-IF_SAFER-v1"}
+              "creation": f"DEFLATE-6-{inv.predictor}-512-IF_SAFER-v1"}
+    # Keep the original Int16/default-prefix resume signature unchanged.
+    if args.output_prefix != "NASADEM":
+        config["output_prefix"] = args.output_prefix
     identity = {"input": inv.identity, "config": config}
     signature = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     state_path = output / "state.json"
@@ -913,12 +944,15 @@ def parser():
                              "or stop before starting a block with error")
     result.add_argument("--min-tiles-per-block", type=int, default=1)
     result.add_argument("--filename-filter", help="Case-insensitive basename substring")
+    result.add_argument("--output-prefix", type=output_prefix_argument, default="NASADEM",
+                        help="Output filename prefix (default: NASADEM); use SRTM_GL1_Ellip for SRTM")
     result.add_argument("--dry-run", action="store_true", help="Inspect and print the plan without writing files")
     return result
 
 
 def run(args, cancel=None):
     validate_block_size(args.block_size)
+    output_prefix_argument(args.output_prefix)
     if args.disk_space_policy not in ("warn", "error"):
         raise InputError("Disk space policy must be warn or error")
     if args.workers < 1 or args.min_tiles_per_block < 1:
@@ -930,7 +964,7 @@ def run(args, cancel=None):
                              lambda message: print(message, file=sys.stderr, flush=True))
     except (RuntimeError, OSError, ValueError, TypeError, KeyError, ET.ParseError) as exc:
         raise InputError(f"Cannot inventory VRT and source tiles: {exc}") from exc
-    blocks = plan_blocks(inv, args.block_size, args.min_tiles_per_block)
+    blocks = plan_blocks(inv, args.block_size, args.min_tiles_per_block, args.output_prefix)
     output = args.output_dir
     if output.is_symlink():
         raise InputError("Output directory must not be a symlink")
@@ -940,6 +974,8 @@ def run(args, cancel=None):
         raise InputError("Output paths overlap inputs")
     if args.dry_run:
         print(json.dumps({"sources": len(inv.sources), "missing_sources": inv.missing,
+                          "data_type": inv.data_type, "nodata": inv.nodata,
+                          "output_prefix": args.output_prefix,
                           "disk_space_policy": args.disk_space_policy,
                           "storage_headroom_bytes": HEADROOM,
                           "blocks": [{"name": b.name, "bounds": b.bounds,

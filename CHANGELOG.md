@@ -17,6 +17,14 @@
   including overviews, and retain CPU/RAM controls and cooperative cancellation.
   Document options, temporary storage costs and COG codec compatibility.
 
+## 0.14.0 — 2026-10-27
+
+- Support Float32 SRTM VRTs in the NASADEM COG merger, preserving fractional
+  elevations and NoData with floating-point compression and exact pixel checks.
+- Add `--output-prefix` while retaining existing Int16/default-prefix resume
+  compatibility. Document WGS84 ellipsoidal SRTM inputs and vertical-datum handling.
+- Pass 50 native QGIS tests and verify all 51,854,401 pixels in a real two-tile COG.
+
 ## 0.12.0 — 2026-10-21
 
 - Accept every positive whole-degree divisor of 360 for NASADEM COG blocks.
