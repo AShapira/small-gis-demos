@@ -34,6 +34,11 @@ HEADROOM = 1024 ** 3
 EMPTY_TILE_BYTES = 2048  # Approximate DEFLATE size of a constant 512 x 512 tile.
 STORAGE_MARGIN = 1.10
 TOLERANCE = 1e-5  # Pixels, including longitudes far from the VRT origin.
+STATISTICS_POLICY = "full-resolution-v1"
+STATISTICS_FIELDS = {"minimum": "STATISTICS_MINIMUM", "maximum": "STATISTICS_MAXIMUM",
+                     "mean": "STATISTICS_MEAN", "stddev": "STATISTICS_STDDEV"}
+STATISTICS_CUSTOM = {"NASADEM_VALID_PIXEL_COUNT", "NASADEM_NODATA_PIXEL_COUNT",
+                     "NASADEM_STATISTICS_METHOD"}
 
 
 class InputError(Exception):
@@ -51,6 +56,125 @@ class Cancelled(Exception):
 def check_cancel(event):
     if event.is_set():
         raise Cancelled("Cancelled")
+
+
+def statistics_key(key):
+    return key.startswith("STATISTICS_") or key in STATISTICS_CUSTOM
+
+
+class Statistics:
+    """Bounded-memory, Float64 pairwise population moments over all valid samples."""
+    def __init__(self):
+        self.total = self.count = 0
+        self.minimum = self.maximum = None
+        self.mean = self.m2 = 0.0
+
+    def add(self, values, nodata, x=0, y=0):
+        if values is None:
+            raise RunError("Cannot read pixels for exact statistics")
+        valid = values != nodata
+        bad = valid & ~np.isfinite(values)
+        if np.any(bad):
+            row, col = np.argwhere(bad)[0]
+            raise RunError(f"Non-finite valid elevation at output pixel {x + int(col)}, {y + int(row)}")
+        self.total += int(values.size)
+        samples = values[valid].astype(np.float64)
+        count = int(samples.size)
+        if not count:
+            return
+        minimum, maximum = float(samples.min()), float(samples.max())
+        self.minimum = minimum if self.minimum is None else min(self.minimum, minimum)
+        self.maximum = maximum if self.maximum is None else max(self.maximum, maximum)
+        mean = float(samples.mean())
+        centered = samples - mean
+        m2 = float(np.sum(centered * centered, dtype=np.float64))
+        combined = self.count + count
+        delta = mean - self.mean
+        self.m2 += m2 + delta * delta * (self.count * count / combined)
+        self.mean += delta * (count / combined)
+        self.count = combined
+
+    def result(self):
+        return {"minimum": self.minimum, "maximum": self.maximum,
+                "mean": self.mean if self.count else None,
+                "stddev": math.sqrt(max(0.0, self.m2 / self.count)) if self.count else None,
+                "valid_pixels": self.count, "nodata_pixels": self.total - self.count,
+                "valid_percent": 100.0 * self.count / self.total if self.total else 0.0}
+
+
+def statistics_metadata(stats):
+    result = {"NASADEM_STATISTICS_METHOD": STATISTICS_POLICY,
+              "NASADEM_VALID_PIXEL_COUNT": str(stats["valid_pixels"]),
+              "NASADEM_NODATA_PIXEL_COUNT": str(stats["nodata_pixels"]),
+              "STATISTICS_VALID_PERCENT": repr(stats["valid_percent"])}
+    result.update({key: repr(stats[field]) for field, key in STATISTICS_FIELDS.items()
+                   if stats[field] is not None})
+    return result
+
+
+def compare_statistics(actual, expected):
+    for field in expected:
+        a, b = actual[field], expected[field]
+        exact = field in ("minimum", "maximum", "valid_pixels", "nodata_pixels") or b is None
+        if (a != b if exact else a is None or not math.isclose(a, b, rel_tol=1e-12, abs_tol=1e-12)):
+            raise RunError(f"Exact statistics mismatch for {field}: stored {a}, calculated {b}")
+
+
+def read_statistics(band, pixels, required=False):
+    metadata = band.GetMetadata()
+    method = metadata.get("NASADEM_STATISTICS_METHOD")
+    if method is None and not required:
+        return None  # Completed pre-statistics outputs remain resumable.
+    try:
+        if method != STATISTICS_POLICY or metadata.get("STATISTICS_APPROXIMATE", "NO") != "NO":
+            raise ValueError("missing or unsupported exact statistics method")
+        valid = int(metadata["NASADEM_VALID_PIXEL_COUNT"])
+        nodata = int(metadata["NASADEM_NODATA_PIXEL_COUNT"])
+        if min(valid, nodata) < 0 or valid + nodata != pixels:
+            raise ValueError("pixel counts do not match raster dimensions")
+        stats = {field: float(metadata[key]) if valid else None
+                 for field, key in STATISTICS_FIELDS.items()}
+        stats.update(valid_pixels=valid, nodata_pixels=nodata,
+                     valid_percent=float(metadata["STATISTICS_VALID_PERCENT"]))
+        if any(value is not None and not math.isfinite(value) for value in stats.values()):
+            raise ValueError("non-finite statistics")
+        if not math.isclose(stats["valid_percent"], 100.0 * valid / pixels, rel_tol=1e-12, abs_tol=1e-12):
+            raise ValueError("valid percentage does not match pixel counts")
+        if valid:
+            if stats["minimum"] > stats["maximum"] or stats["stddev"] < 0:
+                raise ValueError("invalid extrema or standard deviation")
+        elif any(key in metadata for key in STATISTICS_FIELDS.values()):
+            raise ValueError("all-NoData band has undefined numeric statistics")
+        return stats
+    except (KeyError, ValueError, TypeError) as exc:
+        raise RunError(f"Invalid exact statistics metadata: {exc}") from exc
+
+
+def compute_vrt_statistics(path, nodata, cancel, progress):
+    stats = Statistics()
+    ds = gdal.OpenEx(str(path), gdal.OF_RASTER | gdal.OF_READONLY, allowed_drivers=["VRT"])
+    try:
+        width, height = ds.RasterXSize, ds.RasterYSize
+        for y in range(0, height, EDGE):
+            for x in range(0, width, EDGE):
+                check_cancel(cancel)
+                w, h = min(EDGE, width - x), min(EDGE, height - y)
+                stats.add(ds.GetRasterBand(1).ReadAsArray(x, y, w, h), nodata, x, y)
+                progress(stats.total / (width * height))
+    finally:
+        close(ds)
+        ds = None
+    check_cancel(cancel)
+    result = stats.result()
+    tree = ET.parse(path)
+    band = tree.getroot().find("VRTRasterBand")
+    metadata = band.find("Metadata")
+    if metadata is None:
+        metadata = ET.SubElement(band, "Metadata")
+    for key, value in statistics_metadata(result).items():
+        ET.SubElement(metadata, "MDI", key=key).text = value
+    tree.write(path, encoding="UTF-8", xml_declaration=True)
+    return result
 
 
 def integer(value, description):
@@ -337,11 +461,12 @@ def read_inventory(vrt_file, filename_filter=None, cancel=None, progress=None):
     if not sources:
         raise InputError(f"No usable selected sources ({selected} references, {len(missing)} missing)")
     metadata = {item.get("key"): item.text or "" for parent in root.findall("Metadata")
-                if not parent.get("domain") for item in parent.findall("MDI")}
+                if not parent.get("domain") for item in parent.findall("MDI")
+                if not statistics_key(item.get("key") or "")}
     metadata.setdefault("AREA_OR_POINT", template["area_or_point"])
     band_metadata = {item.get("key"): item.text or "" for parent in band.findall("Metadata")
                      if not parent.get("domain") for item in parent.findall("MDI")
-                     if not (item.get("key") or "").startswith("STATISTICS_")}
+                     if not statistics_key(item.get("key") or "")}
     props = {"Scale": template["scale"], "Offset": template["offset"],
              "UnitType": template["unit"], "Description": template["description"],
              "ColorInterp": band.findtext("ColorInterp", "Gray")}
@@ -370,7 +495,7 @@ def selected_results(directory, filename_filter):
 
 def semantic_metadata(dataset):
     return {key: value for key, value in dataset.GetMetadata().items()
-            if not key.startswith("STATISTICS_")}
+            if not statistics_key(key)}
 
 
 def read_results_inventory(directory, filename_filter=None, cancel=None, progress=None):
@@ -639,7 +764,7 @@ def verify_overlaps(inv, cancel):
         readers.close()
 
 
-def verify_pixels(ds, inv, block, cancel, progress):
+def verify_pixels(ds, inv, block, cancel, progress, statistics=None):
     readers = Readers()
     checked = 0
     width, height = block.window[2:]
@@ -678,6 +803,8 @@ def verify_pixels(ds, inv, block, cancel, progress):
                         or not np.array_equal(mask != 0, expected != inv.nodata)):
                     raise RunError(f"Pixel/NoData verification failed in {block.name} at window {x},{y},{w},{h}")
                 checked += w * h
+                if statistics is not None:
+                    statistics.add(expected, inv.nodata, x, y)
                 progress(checked / (width * height))
     finally:
         readers.close()
@@ -692,7 +819,8 @@ def overview_dimensions(width, height):
     return result
 
 
-def verify_output(path, inv, block, overviews, exhaustive, cancel, progress=lambda value: None):
+def verify_output(path, inv, block, overviews, exhaustive, cancel, progress=lambda value: None,
+                  require_statistics=False, expected_statistics=None):
     check_cancel(cancel)
     if inv.consolidating:
         with Path(path).open("rb") as stream:
@@ -701,6 +829,12 @@ def verify_output(path, inv, block, overviews, exhaustive, cancel, progress=lamb
     with opened(path) as ds:
         b = ds.GetRasterBand(1)
         width, height = block.window[2:]
+        stats = read_statistics(b, width * height, require_statistics)
+        if stats is not None:
+            if any(p.lower().endswith(".aux.xml") for p in ds.GetFileList()):
+                raise RunError(f"Exact statistics must be embedded, not stored in a sidecar: {path}")
+            if expected_statistics is not None:
+                compare_statistics(stats, expected_statistics)
         expected_gt = block_transform(inv, block)
         if (ds.RasterCount != 1 or ds.RasterXSize != width or ds.RasterYSize != height
                 or b.DataType != gdal.GetDataTypeByName(inv.data_type) or b.GetNoDataValue() != inv.nodata
@@ -748,10 +882,13 @@ def verify_output(path, inv, block, overviews, exhaustive, cancel, progress=lamb
         if errors:
             raise RunError("COG structure validation failed: " + "; ".join(errors))
         check_cancel(cancel)
-        count = verify_pixels(ds, inv, block, cancel, progress) if exhaustive else 0
+        reference = Statistics() if stats is not None else None
+        count = verify_pixels(ds, inv, block, cancel, progress, reference) if exhaustive else 0
+        if exhaustive and reference is not None:
+            compare_statistics(stats, reference.result())
         return {"mode": "every_pixel" if exhaustive else "structure", "pixels_checked": count,
                 "full_cog_check": exhaustive, "overview_count": len(dims),
-                "overview_dimensions": actual_dims, "warnings": warnings}
+                "overview_dimensions": actual_dims, "warnings": warnings, "statistics": stats}
 
 
 def covered_pixels(rectangles):
@@ -886,7 +1023,8 @@ class Progress:
             return dict(self.values)
 
 
-def process_block(inv, block, output, overviews, exhaustive, cancel, progress, adopted=False):
+def process_block(inv, block, output, overviews, exhaustive, cancel, progress, adopted=False,
+                  statistics_policy=None):
     start = time.monotonic()
     inputs = [record for source in block.sources for record in source.files]
     unchanged(inputs)
@@ -900,7 +1038,8 @@ def process_block(inv, block, output, overviews, exhaustive, cancel, progress, a
         if final.is_symlink():
             raise RunError(f"Output must not be a symlink: {final}")
         verification = verify_output(final, inv, block, overviews, exhaustive or adopted,
-                                     cancel, lambda p: progress.set(block.name, p))
+                                     cancel, lambda p: progress.set(block.name, p),
+                                     require_statistics=statistics_policy is not None)
         unchanged(inputs)
         unchanged_inventory(inv)
         return {"status": "complete", "action": "adopted" if adopted else "skipped",
@@ -911,16 +1050,18 @@ def process_block(inv, block, output, overviews, exhaustive, cancel, progress, a
     vrt = staging / "block.vrt"
     candidate = staging / "candidate.tif"
     write_block_vrt(vrt, inv, block)
+    stats = compute_vrt_statistics(vrt, inv.nodata, cancel,
+                                   lambda p: progress.set(block.name, .25 * p))
     options = ["COMPRESS=DEFLATE", "LEVEL=6", f"PREDICTOR={inv.predictor}", "BLOCKSIZE=512",
                "BIGTIFF=YES" if inv.consolidating else "BIGTIFF=IF_SAFER",
-               "NUM_THREADS=1", "STATISTICS=NO",
+               "NUM_THREADS=1", "STATISTICS=AUTO",
                "OVERVIEWS=IGNORE_EXISTING" if overviews else "OVERVIEWS=NONE"]
     if overviews:
         options.append("OVERVIEW_RESAMPLING=AVERAGE")
         options.append(f"OVERVIEW_COUNT={len(overview_dimensions(*block.window[2:]))}")
 
     def callback(fraction, message, data):
-        progress.set(block.name, fraction * (0.5 if exhaustive else 0.9))
+        progress.set(block.name, .25 + fraction * (0.35 if exhaustive else 0.65))
         return 0 if cancel.is_set() else 1
 
     ds = None
@@ -934,7 +1075,8 @@ def process_block(inv, block, output, overviews, exhaustive, cancel, progress, a
         ds = None
         check_cancel(cancel)
         verification = verify_output(candidate, inv, block, overviews, exhaustive, cancel,
-                                     lambda p: progress.set(block.name, 0.5 + p / 2))
+                                     lambda p: progress.set(block.name, .6 + .4 * p),
+                                     require_statistics=True, expected_statistics=stats)
         unchanged(inputs)
         unchanged_inventory(inv)
         check_cancel(cancel)
@@ -1087,6 +1229,7 @@ def execute(inv, blocks, output, args, cancel):
         total_output = sum(estimates[b.name]["estimated_output_bytes"] for b in blocks if b.eligible)
         log(f"Estimated compressed COG output: {total_output:,} bytes; "
             f"disk space policy: {args.disk_space_policy}. Estimates are approximate.")
+        log("New COGs include exact statistics: scanning every full-resolution pixel before conversion")
         if inv.missing:
             log("Missing files are recorded in state.json; uncovered pixels will be NoData")
         if inv.consolidating:
@@ -1128,12 +1271,15 @@ def execute(inv, blocks, output, args, cancel):
                         previous = state["blocks"][block.name]
                         adopted = previous["status"] != "complete"
                         previous.update(status="running")
+                        if not (output / block.name).exists():
+                            previous["statistics_policy"] = STATISTICS_POLICY
                         previous.pop("error", None)
                         save_state(output, state)
                         kind = "input rasters" if inv.consolidating else "nominal tiles"
                         log(f"Starting {block.name} ({block.tile_count} {kind})")
                         future = pool.submit(process_block, inv, block, output, args.build_overviews,
-                                             args.verify, cancel, progress, adopted)
+                                             args.verify, cancel, progress, adopted,
+                                             previous.get("statistics_policy"))
                         active[future] = (block, needed)
                     if active:
                         done, _ = wait(active, timeout=1, return_when=FIRST_COMPLETED)
@@ -1259,6 +1405,7 @@ def run(args, cancel=None):
                           "output_prefix": args.output_prefix,
                           "disk_space_policy": args.disk_space_policy,
                           "storage_headroom_bytes": HEADROOM,
+                          "new_output_statistics": STATISTICS_POLICY,
                           "mosaic_vrt": (f"{args.output_prefix}_mosaic.vrt"
                                          if sum(b.eligible for b in blocks) > 1 else None),
                           "overlap_validation": "during_execution" if consolidating else "vrt_precedence",

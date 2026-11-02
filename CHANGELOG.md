@@ -17,6 +17,15 @@
   including overviews, and retain CPU/RAM controls and cooperative cancellation.
   Document options, temporary storage costs and COG codec compatibility.
 
+## 0.16.0 — 2026-11-02
+
+- Embed exact full-resolution minimum, maximum, mean, population standard
+  deviation, valid/NoData counts, and valid percentage in newly generated
+  NASADEM/SRTM COGs. Preserve completed legacy outputs on resume and verify
+  new statistics without modifying finished COGs or requiring sidecars.
+- Pass 76 native QGIS tests and verify statistics against an independent
+  GDAL calculation on a real 51,854,401-pixel Float32 COG.
+
 ## 0.15.0 — 2026-11-02
 
 - Consolidate previous NASADEM/SRTM TIFF results with `--merge-results-dir`

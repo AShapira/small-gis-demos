@@ -229,6 +229,49 @@ Blocks below the minimum are reported without producing TIFFs. A present but
 corrupt/incompatible TIFF is an error, not an absent tile. Geographic gaps,
 including ocean areas without source coverage, also remain NoData.
 
+## Exact statistics in new COGs
+
+Every newly generated COG, in both block and consolidation modes, includes
+statistics computed from **every full-resolution sample** in the composed
+output. NoData is excluded, overlapping source samples are counted once, and
+uncovered pixels count as NoData. Input statistics and overviews are never used
+to estimate these values. Statistics describe stored sample values; band
+scale/offset metadata is retained without applying it to the calculation.
+
+| Band metadata | Meaning |
+| --- | --- |
+| `STATISTICS_MINIMUM`, `STATISTICS_MAXIMUM` | Exact valid-sample extrema. |
+| `STATISTICS_MEAN` | Mean of valid samples. |
+| `STATISTICS_STDDEV` | Population standard deviation, dividing variance by the valid count. |
+| `STATISTICS_VALID_PERCENT` | Valid samples as a percentage of all output pixels. |
+| `NASADEM_VALID_PIXEL_COUNT`, `NASADEM_NODATA_PIXEL_COUNT` | Exact integer counts. |
+| `NASADEM_STATISTICS_METHOD` | `full-resolution-v1`; no sampling or approximate-statistics flag. |
+
+Mean, standard deviation, and percentage have ordinary floating-point rounding.
+The implementation uses stable Float64 accumulation and bounded 512-pixel
+windows. All-NoData outputs have zero valid pixels, 0% coverage, and no
+undefined min/max/mean/standard-deviation fields. Non-NoData NaN or infinite
+samples cause an error identifying the output pixel location.
+
+Statistics are calculated before COG conversion and embedded inside the TIFF;
+no `.aux.xml` is needed and the completed COG is never edited in place.
+Calculation adds a full-resolution read before conversion, with progress and
+cooperative cancellation. It runs whether or not `--verify` is enabled.
+Dry runs remain metadata-only and report the statistics policy.
+
+Creation validates embedded metadata against the calculated results. With
+`--verify`, the existing independent pixel-comparison pass also recomputes the
+statistics: extrema and counts must match exactly, and mean/standard deviation
+and percentage use relative and absolute tolerances of `1e-12`.
+Statistics are also recorded in each output's `state.json` verification result.
+
+Completed legacy COGs remain unchanged on resume, even when they lack statistics.
+Any newly generated files, including pending outputs in older runs, receive
+statistics; subsequent resumes require those statistics to remain present.
+Use a new destination to regenerate an old COG with embedded statistics.
+Stage mosaic VRTs do not inherit a constituent COG's statistics. Consolidating
+COGs with different statistics is supported and calculates fresh mosaic values.
+
 ## COGs, verification, and resources
 
 Outputs use DEFLATE level 6, integer predictor 2 (`PREDICTOR=STANDARD`) for Int16

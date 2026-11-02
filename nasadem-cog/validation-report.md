@@ -278,3 +278,43 @@ Evidence is retained under ignored `.validation/nasadem-consolidation/`:
 `real-validation.json`, and `real-cog/state.json`. This records native GDAL
 validation, not a QGIS desktop rendering test. The existing Linux GDAL CI job
 discovers the new tests; remote CI was not run as part of this change.
+
+## Exact embedded statistics — 2026-11-02
+
+The native QGIS suite passed **76/76 tests** on Python 3.12.13 / GDAL 3.13.1,
+including ten new statistics regressions. Coverage includes full-resolution
+Float32 outliers, deliberately stale input statistics and overviews, fractional
+NoData, Int16 seams/gaps, constant and all-NoData rasters, and a single valid
+sample. Tests also cover source band-metadata preservation, consolidation of
+COGs with differing statistics, cancellation during the statistics scan,
+legacy resume, missing statistics on new outputs, and exhaustive statistics
+verification. Statistics tests use independently calculated means and population
+variances with `math.fsum`; extrema and pixel counts must match exactly.
+
+Real acceptance regenerated a new COG from the retained Float32 result and
+independently checked every one of its **51,854,401** base pixels. Embedded
+statistics were:
+
+| Statistic | Value |
+| --- | ---: |
+| Minimum | 575.8612670898438 |
+| Maximum | 2533.906005859375 |
+| Mean | 855.0728031064002 |
+| Population standard deviation | 311.4008575525728 |
+| Valid pixels | 25,930,801 |
+| NoData pixels | 25,923,600 |
+| Valid percentage | 50.00694348007221 |
+
+An additional GDAL `ComputeStatistics(False)` calculation on an in-memory copy
+matched both extrema exactly. Mean and standard deviation agreed within the
+documented `1e-12` relative/absolute tolerance; small numerical differences
+reflect floating-point accumulation order. The finished TIFF is 38,171,165
+bytes, retains four internal overview levels and WGS84 ellipsoidal provenance,
+and passes full COG validation with zero errors or warnings. No statistics
+sidecar is required. A second exhaustive run left its SHA-256, size, and
+modification time unchanged; all input-directory files also remained unchanged.
+
+Evidence is under ignored `.validation/nasadem-statistics/`: `full-tests.log`,
+`real-dry-run.json`, `real-validation.log`, `real-validation.json`, and
+`real-cog/state.json`. This is native GDAL validation; remote CI and QGIS desktop
+rendering were not exercised for this change.
