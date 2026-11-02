@@ -17,6 +17,16 @@
   including overviews, and retain CPU/RAM controls and cooperative cancellation.
   Document options, temporary storage costs and COG codec compatibility.
 
+## 0.15.0 — 2026-11-02
+
+- Consolidate previous NASADEM/SRTM TIFF results with `--merge-results-dir`
+  into one BigTIFF COG with fresh internal average overviews, exact overlap
+  checks, native input bounds, and resumable verification.
+- Publish portable mosaic VRTs for completed multi-COG stages; omit them for
+  single-COG outputs and regenerate missing managed VRTs on resume.
+- Pass 66 native QGIS tests and verify all 51,854,401 pixels in a retained
+  Float32 COG, including unchanged inputs and successful resume.
+
 ## 0.14.0 — 2026-10-27
 
 - Support Float32 SRTM VRTs in the NASADEM COG merger, preserving fractional

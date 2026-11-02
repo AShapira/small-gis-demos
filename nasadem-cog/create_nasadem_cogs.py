@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Merge local Int16 NASADEM or Float32 SRTM VRTs into degree-sized COGs."""
+"""Merge NASADEM/SRTM tiles into COG blocks, or consolidate previous results."""
 import argparse
 from collections import OrderedDict
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
@@ -127,12 +127,17 @@ class Source:
     gy: int
     west: int
     south: int
-    size: int
+    width: int
+    height: int
     kind: str
     skip_nodata: bool
     use_mask: bool
     files: list
     base_bytes: int
+
+    @property
+    def pixels(self):
+        return self.width * self.height
 
     @property
     def footprint(self):
@@ -164,6 +169,10 @@ class Inventory:
     missing: list
     identity: dict
     data_type: str = "Int16"
+
+    @property
+    def consolidating(self):
+        return self.identity.get("mode") == "merge_results"
 
     @property
     def numpy_dtype(self):
@@ -321,7 +330,7 @@ def read_inventory(vrt_file, filename_filter=None, cancel=None, progress=None):
                     for i in range(b.GetOverviewCount()))
                 base_bytes = math.ceil(raster_bytes * size * size / pyramid_pixels)
                 records.extend(files)
-                sources.append(Source(source_path, src, dst, gx, gy, west, south, size,
+                sources.append(Source(source_path, src, dst, gx, gy, west, south, size, size,
                                       node.tag, skip_nodata, use_mask, files, base_bytes))
         except (RuntimeError, OSError, RunError) as exc:
             raise InputError(f"Unreadable source {source_path}: {exc}") from exc
@@ -346,6 +355,125 @@ def read_inventory(vrt_file, filename_filter=None, cancel=None, progress=None):
                 "sources": records}
     return Inventory(path, gt, projection, nodata, intervals, metadata, band_metadata,
                      props, sources, list(dict.fromkeys(missing)), identity, data_type)
+
+
+def selected_results(directory, filename_filter):
+    paths = sorted((p for p in directory.iterdir() if p.suffix.lower() in (".tif", ".tiff")
+                    and (not filename_filter or filename_filter.casefold() in p.name.casefold())),
+                   key=lambda p: (p.name.casefold(), p.name))
+    if not paths:
+        raise InputError("No selected TIFFs in results directory")
+    if any(not p.is_file() for p in paths):
+        raise InputError("Every selected TIFF must be an existing regular file")
+    return [p.resolve(strict=True) for p in paths]
+
+
+def semantic_metadata(dataset):
+    return {key: value for key, value in dataset.GetMetadata().items()
+            if not key.startswith("STATISTICS_")}
+
+
+def read_results_inventory(directory, filename_filter=None, cancel=None, progress=None):
+    """Inventory already merged rasters without their original VRT or checkpoint."""
+    cancel = cancel or threading.Event()
+    directory = Path(directory).resolve(strict=True)
+    paths = selected_results(directory, filename_filter)
+    sources, records = [], []
+    template = None
+    next_notice = time.monotonic() + 5
+    for path in dict.fromkeys(paths):
+        check_cancel(cancel)
+        if progress and time.monotonic() >= next_notice:
+            progress(f"Inspecting results: {len(sources)} of {len(paths)} TIFFs")
+            next_notice = time.monotonic() + 5
+        with opened(path) as ds:
+            b = ds.GetRasterBand(1)
+            data_type = gdal.GetDataTypeName(b.DataType)
+            if ds.RasterCount != 1 or data_type not in ("Int16", "Float32"):
+                raise InputError(f"Expected one Int16 or Float32 height band: {path}")
+            if b.GetNoDataValue() is None:
+                raise InputError(f"An explicit finite {data_type} NoData value is required: {path}")
+            nodata = parse_nodata(b.GetNoDataValue(), data_type)
+            if b.GetMaskFlags() not in (gdal.GMF_ALL_VALID, gdal.GMF_NODATA):
+                raise InputError(f"Results must use NoData, not an explicit mask: {path}")
+            projection = ds.GetProjection()
+            if not wgs84(projection):
+                raise InputError(f"Expected WGS 84 / EPSG:4326 results: {path}")
+            sg = ds.GetGeoTransform()
+            if (not all(math.isfinite(v) for v in sg) or sg[2] or sg[4]
+                    or sg[1] <= 0 or sg[5] >= 0):
+                raise InputError(f"Expected north-up, unrotated results: {path}")
+            width, height = ds.RasterXSize, ds.RasterYSize
+            metadata = semantic_metadata(ds)
+            metadata.setdefault("AREA_OR_POINT", "Area")
+            band_metadata = semantic_metadata(b)
+            props = {"Scale": b.GetScale(), "Offset": b.GetOffset(),
+                     "UnitType": b.GetUnitType(), "Description": b.GetDescription(),
+                     "ColorInterp": gdal.GetColorInterpretationName(b.GetColorInterpretation())}
+            if props["ColorInterp"] not in ("Gray", "Undefined"):
+                raise InputError(f"Expected grayscale/undefined height data: {path}")
+            properties = data_type, nodata, metadata, band_metadata, props
+            if template is None:
+                template = properties
+                gt, reference_projection = sg, projection
+                intervals = integer(1 / gt[1], "Samples per degree")
+                if intervals < 1:
+                    raise InputError("Expected a positive integer number of intervals per degree")
+                integer((gt[0] + gt[1] / 2) * intervals, "Longitude sample origin")
+                integer((gt[3] + gt[5] / 2) * intervals, "Latitude sample origin")
+            elif properties != template:
+                raise InputError(f"Incompatible result data type, NoData or semantic metadata: {path}")
+            if (abs(sg[1] * intervals - 1) * width > TOLERANCE
+                    or abs(-sg[5] * intervals - 1) * height > TOLERANCE):
+                raise InputError(f"Incompatible result pixel grid: {path}")
+            gx = integer((sg[0] - gt[0]) / gt[1], "Result column")
+            gy = integer((sg[3] - gt[3]) / gt[5], "Result row")
+            west, north = sg[0] + sg[1] / 2, sg[3] + sg[5] / 2
+            east, south = west + (width - 1) * sg[1], north + (height - 1) * sg[5]
+            tolerance = TOLERANCE / intervals
+            if (west < -180 - tolerance or east > 180 + tolerance
+                    or south < -90 - tolerance or north > 90 + tolerance):
+                raise InputError(f"Results outside geographic sample bounds: {path}")
+            files = [stamp(Path(p).resolve()) for p in ds.GetFileList()]
+            raster_paths = {path, Path(str(path) + ".ovr")}
+            raster_bytes = sum(f["size"] for f in files if Path(f["path"]) in raster_paths)
+            pixels = width * height
+            pyramid_pixels = pixels + sum(b.GetOverview(i).XSize * b.GetOverview(i).YSize
+                                           for i in range(b.GetOverviewCount()))
+            records.extend(files)
+            sources.append(Source(path, (0, 0, width, height), (gx, gy, width, height),
+                                  gx, gy, west, south, width, height, "ComplexSource",
+                                  True, False, files, math.ceil(raster_bytes * pixels / pyramid_pixels)))
+    data_type, nodata, metadata, band_metadata, props = template
+    identity = {"mode": "merge_results", "directory": str(directory),
+                "filter": filename_filter, "selected": [str(p) for p in paths], "sources": records}
+    return Inventory(None, gt, reference_projection, nodata, intervals, metadata,
+                     band_metadata, props, sources, [], identity, data_type)
+
+
+def unchanged_inventory(inv):
+    if inv.consolidating:
+        selected = selected_results(Path(inv.identity["directory"]), inv.identity["filter"])
+        if [str(p) for p in selected] != inv.identity["selected"]:
+            raise RunError("Selected results changed during processing")
+    else:
+        unchanged([inv.identity["vrt_stat"]])
+
+
+def enclosing_window(windows):
+    left, top = min(w[0] for w in windows), min(w[1] for w in windows)
+    right = max(w[0] + w[2] for w in windows)
+    bottom = max(w[1] + w[3] for w in windows)
+    return left, top, right - left, bottom - top
+
+
+def plan_consolidation(inv, output_prefix):
+    window = enclosing_window([s.dst for s in inv.sources])
+    x, y, width, height = window
+    gt = inv.transform
+    west, north = gt[0] + (x + .5) * gt[1], gt[3] + (y + .5) * gt[5]
+    bounds = west, north + (height - 1) * gt[5], west + (width - 1) * gt[1], north
+    return [Block(f"{output_prefix}_merged.tif", bounds, window, inv.sources, len(inv.sources), True)]
 
 
 def coordinate(lat, lon):
@@ -416,7 +544,7 @@ def add_metadata(parent, values):
             ET.SubElement(node, "MDI", key=key).text = str(value)
 
 
-def write_block_vrt(path, inv, block):
+def write_block_vrt(path, inv, block, relative=False):
     root = ET.Element("VRTDataset", rasterXSize=str(block.window[2]),
                       rasterYSize=str(block.window[3]))
     ET.SubElement(root, "SRS").text = inv.projection
@@ -433,7 +561,8 @@ def write_block_vrt(path, inv, block):
         if common is None:
             continue
         node = ET.SubElement(band, source.kind)
-        ET.SubElement(node, "SourceFilename", relativeToVRT="0").text = str(source.path)
+        ET.SubElement(node, "SourceFilename", relativeToVRT="1" if relative else "0").text = (
+            source.path.name if relative else str(source.path))
         ET.SubElement(node, "SourceBand").text = "1"
         sx = source.src[0] + common[0] - source.dst[0]
         sy = source.src[1] + common[1] - source.dst[1]
@@ -472,6 +601,42 @@ class Readers:
         for ds in self.datasets.values():
             close(ds)
         self.datasets.clear()
+
+
+def verify_overlaps(inv, cancel):
+    """Reject disagreeing valid samples, reading only intersections at base resolution."""
+    readers = Readers()
+    active = []
+    try:
+        for source in sorted(inv.sources, key=lambda s: s.gx):
+            check_cancel(cancel)
+            active = [s for s in active if s.gx + s.width > source.gx]
+            for other in active:
+                common = intersection(source.footprint, other.footprint)
+                if common is None:
+                    continue
+                left, top, width, height = common
+                for y in range(top, top + height, EDGE):
+                    for x in range(left, left + width, EDGE):
+                        check_cancel(cancel)
+                        w, h = min(EDGE, left + width - x), min(EDGE, top + height - y)
+                        a = readers.get(source.path).GetRasterBand(1).ReadAsArray(
+                            x - source.gx, y - source.gy, w, h)
+                        b = readers.get(other.path).GetRasterBand(1).ReadAsArray(
+                            x - other.gx, y - other.gy, w, h)
+                        if a is None or b is None:
+                            raise RunError("Cannot read result overlap")
+                        conflict = (a != inv.nodata) & (b != inv.nodata) & (a != b)
+                        if np.any(conflict):
+                            row, col = np.argwhere(conflict)[0]
+                            lon = inv.transform[0] + (x + int(col) + .5) * inv.transform[1]
+                            lat = inv.transform[3] + (y + int(row) + .5) * inv.transform[5]
+                            raise RunError(f"Conflicting valid elevations at {lon:.12g}, {lat:.12g}: "
+                                           f"{source.path} ({a[row, col]}) and "
+                                           f"{other.path} ({b[row, col]})")
+            active.append(source)
+    finally:
+        readers.close()
 
 
 def verify_pixels(ds, inv, block, cancel, progress):
@@ -529,6 +694,10 @@ def overview_dimensions(width, height):
 
 def verify_output(path, inv, block, overviews, exhaustive, cancel, progress=lambda value: None):
     check_cancel(cancel)
+    if inv.consolidating:
+        with Path(path).open("rb") as stream:
+            if stream.read(4) not in (b"II+\x00", b"MM\x00+"):
+                raise RunError(f"Consolidated output must be BigTIFF: {path}")
     with opened(path) as ds:
         b = ds.GetRasterBand(1)
         width, height = block.window[2:]
@@ -545,9 +714,14 @@ def verify_output(path, inv, block, overviews, exhaustive, cancel, progress=lamb
             raise RunError(f"Output compression mismatch: {path}")
         if ds.GetMetadataItem("PREDICTOR", "IMAGE_STRUCTURE") != ("3" if inv.data_type == "Float32" else "2"):
             raise RunError(f"Output predictor mismatch: {path}")
+        if any(p.lower().endswith(".ovr") for p in ds.GetFileList()):
+            raise RunError(f"Output overviews must be internal: {path}")
         for key, value in inv.metadata.items():
             if ds.GetMetadataItem(key) != value:
                 raise RunError(f"Output metadata mismatch ({key}): {path}")
+        for key, value in inv.band_metadata.items():
+            if b.GetMetadataItem(key) != value:
+                raise RunError(f"Output band metadata mismatch ({key}): {path}")
         for key, getter in (("Scale", b.GetScale), ("Offset", b.GetOffset),
                             ("UnitType", b.GetUnitType), ("Description", b.GetDescription)):
             value = inv.band_properties[key]
@@ -580,11 +754,26 @@ def verify_output(path, inv, block, overviews, exhaustive, cancel, progress=lamb
                 "overview_dimensions": actual_dims, "warnings": warnings}
 
 
+def covered_pixels(rectangles):
+    """Area of a rectangle union, including duplicate and shared-edge coverage once."""
+    rectangles = set(rectangles)
+    edges = sorted({x for left, _, width, _ in rectangles for x in (left, left + width)})
+    area = 0
+    for left, right in zip(edges, edges[1:]):
+        intervals = sorted((y, y + h) for x, y, w, h in rectangles if x <= left < x + w)
+        end, height = None, 0
+        for top, bottom in intervals:
+            height += bottom - top if end is None else max(0, bottom - max(top, end))
+            end = bottom if end is None else max(end, bottom)
+        area += (right - left) * height
+    return area
+
+
 def storage_estimate(block, overviews):
     """Estimate compressed output and CreateCopy scratch space without reading pixels."""
     width, height = block.window[2:]
     pixels = width * height
-    source_areas, source_info, covered_areas, seen = {}, {}, {}, set()
+    source_areas, source_info, rectangles, seen = {}, {}, [], set()
     for source in block.sources:
         common = intersection(block.window, source.dst)
         key = source.path, common
@@ -593,12 +782,11 @@ def storage_estimate(block, overviews):
         seen.add(key)
         area = common[2] * common[3]
         source_areas[source.path] = source_areas.get(source.path, 0) + area
-        source_info[source.path] = source.base_bytes, source.size ** 2
-        cell = source.west, source.south
-        covered_areas[cell] = min(source.size ** 2, covered_areas.get(cell, 0) + area)
+        source_info[source.path] = source.base_bytes, source.pixels
+        rectangles.append(common)
     source_bytes = math.ceil(sum(source_info[path][0] * min(area, source_info[path][1])
                                  / source_info[path][1] for path, area in source_areas.items()))
-    empty_pixels = max(0, pixels - sum(covered_areas.values()))
+    empty_pixels = max(0, pixels - covered_pixels(rectangles))
     tiles = math.ceil(width / EDGE) * math.ceil(height / EDGE)
     # Empty coverage compresses to small constant tiles, not raw pixels.
     base_bytes = (source_bytes + math.ceil(empty_pixels / (EDGE * EDGE)) * EMPTY_TILE_BYTES
@@ -702,7 +890,11 @@ def process_block(inv, block, output, overviews, exhaustive, cancel, progress, a
     start = time.monotonic()
     inputs = [record for source in block.sources for record in source.files]
     unchanged(inputs)
-    unchanged([inv.identity["vrt_stat"]])
+    unchanged_inventory(inv)
+    if inv.consolidating:
+        verify_overlaps(inv, cancel)
+        unchanged(inputs)
+        unchanged_inventory(inv)
     final = output / block.name
     if final.exists():
         if final.is_symlink():
@@ -710,7 +902,7 @@ def process_block(inv, block, output, overviews, exhaustive, cancel, progress, a
         verification = verify_output(final, inv, block, overviews, exhaustive or adopted,
                                      cancel, lambda p: progress.set(block.name, p))
         unchanged(inputs)
-        unchanged([inv.identity["vrt_stat"]])
+        unchanged_inventory(inv)
         return {"status": "complete", "action": "adopted" if adopted else "skipped",
                 "verification": verification, "bytes": final.stat().st_size,
                 "elapsed_seconds": time.monotonic() - start}
@@ -720,7 +912,8 @@ def process_block(inv, block, output, overviews, exhaustive, cancel, progress, a
     candidate = staging / "candidate.tif"
     write_block_vrt(vrt, inv, block)
     options = ["COMPRESS=DEFLATE", "LEVEL=6", f"PREDICTOR={inv.predictor}", "BLOCKSIZE=512",
-               "BIGTIFF=IF_SAFER", "NUM_THREADS=1", "STATISTICS=NO",
+               "BIGTIFF=YES" if inv.consolidating else "BIGTIFF=IF_SAFER",
+               "NUM_THREADS=1", "STATISTICS=NO",
                "OVERVIEWS=IGNORE_EXISTING" if overviews else "OVERVIEWS=NONE"]
     if overviews:
         options.append("OVERVIEW_RESAMPLING=AVERAGE")
@@ -743,7 +936,7 @@ def process_block(inv, block, output, overviews, exhaustive, cancel, progress, a
         verification = verify_output(candidate, inv, block, overviews, exhaustive, cancel,
                                      lambda p: progress.set(block.name, 0.5 + p / 2))
         unchanged(inputs)
-        unchanged([inv.identity["vrt_stat"]])
+        unchanged_inventory(inv)
         check_cancel(cancel)
         if final.exists():
             raise RunError(f"Output appeared during generation; refusing to overwrite: {final}")
@@ -762,6 +955,10 @@ def prepare_state(output, inv, blocks, args):
     config = {"block_size": args.block_size, "min_tiles_per_block": args.min_tiles_per_block,
               "build_overviews": args.build_overviews,
               "creation": f"DEFLATE-6-{inv.predictor}-512-IF_SAFER-v1"}
+    if inv.consolidating:
+        config = {"mode": "merge_results", "build_overviews": True,
+                  "creation": f"DEFLATE-6-{inv.predictor}-512-YES-v1",
+                  "overlap_policy": "reject_conflicts"}
     # Keep the original Int16/default-prefix resume signature unchanged.
     if args.output_prefix != "NASADEM":
         config["output_prefix"] = args.output_prefix
@@ -795,11 +992,65 @@ def prepare_state(output, inv, blocks, args):
                   and p.name not in known]
     if unexpected:
         raise InputError(f"Unrelated TIFFs in output directory: {unexpected}")
+    if sum(b.eligible for b in blocks) > 1:
+        check_stage_vrt(output, state, f"{args.output_prefix}_mosaic.vrt")
     state.update(status="running", workers=args.workers, verify=args.verify,
                  disk_space_policy=args.disk_space_policy,
                  started_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
                  runtime={"python": sys.version.split()[0], "gdal": gdal.VersionInfo("RELEASE_NAME")})
     return state
+
+
+def check_stage_vrt(output, state, name):
+    path = output / name
+    if path.is_symlink():
+        raise InputError(f"Stage VRT must not be a symlink: {path}")
+    if path.exists():
+        record = state.get("mosaic_vrt", {})
+        if (not path.is_file() or record.get("name") != name
+                or hashlib.sha256(path.read_bytes()).hexdigest() != record.get("sha256")):
+            raise InputError(f"Unrelated or modified stage VRT; refusing to overwrite: {path}")
+
+
+def publish_stage_vrt(output, state, inv, blocks, prefix, cancel):
+    completed = [b for b in blocks if b.eligible]
+    if len(completed) <= 1:
+        return
+    if any(state["blocks"][b.name]["status"] != "complete" for b in completed):
+        raise RunError("Cannot publish a VRT for an incomplete stage")
+    name = f"{prefix}_mosaic.vrt"
+    check_stage_vrt(output, state, name)
+    sources = []
+    for block in completed:
+        x, y, width, height = block.window
+        sources.append(Source(output / block.name, (0, 0, width, height), block.window,
+                              x, y, block.bounds[0], block.bounds[1], width, height,
+                              "ComplexSource", True, False, [], 0))
+    window = enclosing_window([b.window for b in completed])
+    mosaic = Block(name, (), window, sources, len(sources), True)
+    temporary = output / f".{name}.{uuid.uuid4().hex}.tmp"
+    try:
+        check_cancel(cancel)
+        write_block_vrt(temporary, inv, mosaic, relative=True)
+        ds = gdal.OpenEx(str(temporary), gdal.OF_RASTER | gdal.OF_READONLY, allowed_drivers=["VRT"])
+        try:
+            if (ds is None or (ds.RasterXSize, ds.RasterYSize) != window[2:]
+                    or ds.GetRasterBand(1).GetNoDataValue() != inv.nodata):
+                raise RunError("Cannot validate the completed-stage VRT")
+        finally:
+            close(ds)
+            ds = None
+        digest = hashlib.sha256(temporary.read_bytes()).hexdigest()
+        check_cancel(cancel)
+        check_stage_vrt(output, state, name)
+        # Checkpoint ownership first so a crash after publication is resumable.
+        state["mosaic_vrt"] = {"name": name, "sha256": digest}
+        save_state(output, state)
+        check_cancel(cancel)
+        os.replace(temporary, output / name)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
 
 
 @contextmanager
@@ -838,6 +1089,8 @@ def execute(inv, blocks, output, args, cancel):
             f"disk space policy: {args.disk_space_policy}. Estimates are approximate.")
         if inv.missing:
             log("Missing files are recorded in state.json; uncovered pixels will be NoData")
+        if inv.consolidating:
+            log("Checking overlapping valid elevations before consolidation; source overviews are ignored")
         save_state(output, state)
         pending = [b for b in blocks if b.eligible]
         active = {}
@@ -877,7 +1130,8 @@ def execute(inv, blocks, output, args, cancel):
                         previous.update(status="running")
                         previous.pop("error", None)
                         save_state(output, state)
-                        log(f"Starting {block.name} ({block.tile_count} nominal tiles)")
+                        kind = "input rasters" if inv.consolidating else "nominal tiles"
+                        log(f"Starting {block.name} ({block.tile_count} {kind})")
                         future = pool.submit(process_block, inv, block, output, args.build_overviews,
                                              args.verify, cancel, progress, adopted)
                         active[future] = (block, needed)
@@ -911,6 +1165,10 @@ def execute(inv, blocks, output, args, cancel):
                         log(f"{completed} complete; {len(active)} active; {len(pending)} pending; "
                             f"{fraction:.1%}; ETA {round(eta)}s" if eta is not None else "Estimating ETA")
                         last_progress = now
+            if not failures and not cancel.is_set():
+                publish_stage_vrt(output, state, inv, blocks, args.output_prefix, cancel)
+        except Cancelled:
+            cancel.set()
         except Exception as exc:
             cancel.set()
             state["status"] = "failed"
@@ -929,11 +1187,21 @@ def execute(inv, blocks, output, args, cancel):
     return 130 if cancel.is_set() else 1 if failures else 0
 
 
+class VrtOnlyArgument(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, values)
+        namespace.vrt_only_options = (*getattr(namespace, "vrt_only_options", ()), option_string)
+
+
 def parser():
     result = argparse.ArgumentParser(description=__doc__)
-    result.add_argument("--vrt-file", required=True, type=Path)
+    inputs = result.add_mutually_exclusive_group(required=True)
+    inputs.add_argument("--vrt-file", type=Path, help="Original VRT referencing 1-degree TIFF tiles")
+    inputs.add_argument("--merge-results-dir", type=Path,
+                        help="Consolidate this directory's TIFFs into one COG with internal overviews")
     result.add_argument("--output-dir", required=True, type=Path)
     result.add_argument("--block-size", type=block_size_argument, default=10, metavar="DEGREES",
+                        action=VrtOnlyArgument,
                         help="Positive integer divisor of 360 (default: 10); "
                              "360 creates one whole-world COG")
     result.add_argument("--workers", type=int, default=8)
@@ -942,7 +1210,8 @@ def parser():
     result.add_argument("--disk-space-policy", choices=("warn", "error"), default="warn",
                         help="Warn and continue when estimated space is insufficient (default), "
                              "or stop before starting a block with error")
-    result.add_argument("--min-tiles-per-block", type=int, default=1)
+    result.add_argument("--min-tiles-per-block", type=int, default=1, action=VrtOnlyArgument,
+                        help="Minimum source tiles per block (VRT mode only)")
     result.add_argument("--filename-filter", help="Case-insensitive basename substring")
     result.add_argument("--output-prefix", type=output_prefix_argument, default="NASADEM",
                         help="Output filename prefix (default: NASADEM); use SRTM_GL1_Ellip for SRTM")
@@ -951,6 +1220,12 @@ def parser():
 
 
 def run(args, cancel=None):
+    args = argparse.Namespace(**vars(args))
+    consolidating = args.merge_results_dir is not None
+    if consolidating:
+        if getattr(args, "vrt_only_options", ()):
+            raise InputError("--block-size and --min-tiles-per-block apply only to --vrt-file")
+        args.build_overviews = True
     validate_block_size(args.block_size)
     output_prefix_argument(args.output_prefix)
     if args.disk_space_policy not in ("warn", "error"):
@@ -960,26 +1235,37 @@ def run(args, cancel=None):
     configure()
     cancel = cancel or threading.Event()
     try:
-        inv = read_inventory(args.vrt_file, args.filename_filter, cancel,
-                             lambda message: print(message, file=sys.stderr, flush=True))
+        reader = read_results_inventory if consolidating else read_inventory
+        inv = reader(args.merge_results_dir if consolidating else args.vrt_file,
+                     args.filename_filter, cancel,
+                     lambda message: print(message, file=sys.stderr, flush=True))
     except (RuntimeError, OSError, ValueError, TypeError, KeyError, ET.ParseError) as exc:
-        raise InputError(f"Cannot inventory VRT and source tiles: {exc}") from exc
-    blocks = plan_blocks(inv, args.block_size, args.min_tiles_per_block, args.output_prefix)
+        raise InputError(f"Cannot inventory inputs: {exc}") from exc
+    blocks = (plan_consolidation(inv, args.output_prefix) if consolidating else
+              plan_blocks(inv, args.block_size, args.min_tiles_per_block, args.output_prefix))
     output = args.output_dir
     if output.is_symlink():
         raise InputError("Output directory must not be a symlink")
     output = output.resolve()
+    if consolidating and output == Path(inv.identity["directory"]):
+        raise InputError("Consolidation requires a separate output directory")
     input_paths = {inv.vrt, *(source.path for source in inv.sources)}
     if output in input_paths or any(output / b.name in input_paths for b in blocks):
         raise InputError("Output paths overlap inputs")
     if args.dry_run:
-        print(json.dumps({"sources": len(inv.sources), "missing_sources": inv.missing,
+        print(json.dumps({"mode": "merge_results" if consolidating else "vrt_blocks",
+                          "sources": len(inv.sources), "missing_sources": inv.missing,
                           "data_type": inv.data_type, "nodata": inv.nodata,
                           "output_prefix": args.output_prefix,
                           "disk_space_policy": args.disk_space_policy,
                           "storage_headroom_bytes": HEADROOM,
+                          "mosaic_vrt": (f"{args.output_prefix}_mosaic.vrt"
+                                         if sum(b.eligible for b in blocks) > 1 else None),
+                          "overlap_validation": "during_execution" if consolidating else "vrt_precedence",
                           "blocks": [{"name": b.name, "bounds": b.bounds,
                                       "dimensions": b.window[2:], "tile_count": b.tile_count,
+                                      "overview_dimensions": (overview_dimensions(*b.window[2:])
+                                                              if args.build_overviews else []),
                                       "contributing_sources": len(b.sources), "eligible": b.eligible,
                                       **storage_estimate(b, args.build_overviews)}
                                      for b in blocks]}, indent=2))

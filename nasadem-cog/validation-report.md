@@ -238,3 +238,43 @@ published samples agreed within 0.000032 m. This data repair is separate from
 the merger: its source-type and explicit-NoData requirements remain enforced.
 The dataset's manifest and `provenance/repair/` retain the evidence; downloaded
 rasters are retained outside the repository and are not included in the release.
+
+## Previous-result consolidation and stage VRTs — 2026-11-02
+
+The native QGIS suite passed **66/66 tests** with Windows QGIS 4.2,
+Python 3.12.13, and GDAL 3.13.1: the existing 50 tests plus 16 consolidation
+and stage-VRT regressions. New coverage includes rectangular rasters, shared
+samples and corners, gaps, exact Float32 conflict detection, fractional NoData,
+fresh internal average overviews, BigTIFF, filtering, and input incompatibilities.
+It also covers cancellation/resume, input additions during conversion, disk
+policy, VRT ownership collisions, and recovery after VRT publication but before
+the final checkpoint.
+
+A generated four-block Float32 stage was moved with its relative-path VRT.
+The original tiles, original VRT, original output directory, and copied state
+were removed from the isolated fixture. The moved mosaic remained readable;
+consolidation preserved every expected sample and left input TIFF hashes and
+modification times unchanged. Additional tests confirm that stage VRTs exclude
+below-minimum blocks, are regenerated for compatible legacy states without
+rewriting COGs, and are omitted for single-output and incomplete stages.
+
+Real-data acceptance used the retained, previously merged
+`SRTM_GL1_Ellip_N32E036_N33E037.tif` directly through `--merge-results-dir`.
+No original source tiles or original VRT were used by consolidation.
+
+| Output | Dimensions | Bytes | Exact base-pixel checks | Internal overviews |
+| --- | --- | --- | --- | --- |
+| `SRTM_GL1_Ellip_merged.tif` | 7,201 × 7,201 | 38,170,597 | 51,854,401 | 3,600; 1,800; 900; 450 pixels per side |
+
+The output retained Float32 elevations and `VERTICAL_DATUM=WGS84 ellipsoid`.
+Full COG structural validation reported zero errors and zero warnings. A second
+run exhaustively verified the output again and skipped rewriting it: its
+SHA-256, size, and modification time were unchanged. All files in the input
+directory also retained their hashes, sizes, and modification times. The final
+directory contains no accompanying VRT or external overview file.
+
+Evidence is retained under ignored `.validation/nasadem-consolidation/`:
+`full-tests.log`, `real-dry-run.json`, `real-validation.log`,
+`real-validation.json`, and `real-cog/state.json`. This records native GDAL
+validation, not a QGIS desktop rendering test. The existing Linux GDAL CI job
+discovers the new tests; remote CI was not run as part of this change.

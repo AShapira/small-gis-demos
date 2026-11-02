@@ -2,7 +2,8 @@
 
 Create Cloud Optimized GeoTIFF blocks from an existing local Int16 NASADEM or
 Float32 SRTM VRT and its 1° height tiles using any positive whole-degree divisor of 360. The default
-is 10°; 360° creates one whole-world COG. Run the single file
+is 10°; 360° creates one whole-world COG. You can also consolidate previously
+merged TIFFs into one COG covering their combined extent. Run the single file
 `create_nasadem_cogs.py` in the **QGIS/OSGeo4W command shell on Windows**.
 It uses QGIS's GDAL, NumPy, and GDAL COG validator; no plugin or pip installation
 is required. Python 3.9+ and GDAL 3.6+ are required. This is a command-line tool,
@@ -41,6 +42,77 @@ works in that shell. Do not install a second GDAL into QGIS with pip.
 Development validation uses Windows QGIS 4.2 / Python 3.12 / GDAL 3.13.
 The CI tests also exercise the system GDAL supplied by Ubuntu.
 
+## Consolidate previous merge results
+
+Use a directory of previously generated TIFFs as the input. The original 1°
+tiles, original VRT, and previous `state.json` are not required:
+
+```cmd
+python create_nasadem_cogs.py ^
+  --merge-results-dir "D:\Maps\NASADEM\COG_10deg" ^
+  --output-dir "D:\Maps\NASADEM\COG_merged" ^
+  --verify
+```
+
+This writes **`NASADEM_merged.tif`**, with fresh internal average overviews.
+Use `--output-prefix SRTM_GL1_Ellip` to name it `SRTM_GL1_Ellip_merged.tif`.
+Add `--dry-run` first to inspect the selected files, exact extent/dimensions,
+overview dimensions, and compressed output/working-space estimates without
+creating files. Dry runs read metadata only; they report that pixel overlap
+validation occurs during execution.
+
+Only immediate `.tif`/`.tiff` files are selected, case-insensitively; subdirectories
+and VRTs are ignored. `--filename-filter` can restrict selection. Every selected
+file must be readable and compatible; unrelated TIFFs are not silently skipped.
+Inputs may be rectangular and need not themselves be COGs. They must have one
+Int16 or Float32 height band, matching finite NoData, EPSG:4326, aligned north-up
+square pixels on the existing integer-samples-per-degree grid, and consistent
+dataset/band metadata (excluding statistics). Explicit masks are rejected;
+use the merger's NoData-based outputs. No horizontal or vertical transformation
+is performed.
+
+The output uses the smallest rectangle containing the selected rasters, including
+their endpoint samples and existing NoData margins. It does not expand to the
+whole world or crop to valid terrain. Shared samples occupy one pixel position;
+gaps remain NoData. Overlapping valid values must agree **exactly**, including
+Float32 values. A valid value may fill another input's NoData. Conflicts fail
+before conversion and report the two source paths and sample location, even
+without `--verify`. `--verify` additionally compares every output pixel and
+validity flag against these input TIFFs, not against the unavailable originals.
+
+Consolidation always uses BigTIFF, DEFLATE level 6, the type-specific predictor,
+512-pixel tiles, and newly generated internal average overviews. Source overviews
+are ignored. No overview levels are necessary when the image already fits
+512 × 512. `--build-overviews` is accepted but redundant in this mode.
+`--block-size` and `--min-tiles-per-block` apply only to `--vrt-file`.
+`--workers` still controls concurrent output files; consolidation has only one
+output and uses one GDAL compression thread.
+
+Use a separate new/empty output directory, or resume the same consolidation
+command in its existing output directory. The selected TIFFs and dependencies
+are recorded in its own state; changing inputs or output settings requires a
+new destination. Existing inputs are never modified. Disk policy, staging,
+cancellation, validation, and resume behavior are otherwise shared with block
+generation.
+
+## VRT for each output stage
+
+Every successfully completed stage producing **more than one COG** also writes
+**`<output-prefix>_mosaic.vrt`**. This includes ordinary degree-block generation.
+The VRT references only that stage's eligible, validated output TIFFs, using
+relative filenames. Move the VRT and its TIFFs together to open the mosaic in
+QGIS or another GDAL reader. The original input collection is not needed to
+read it. To consolidate these outputs, use `--merge-results-dir`; the original
+`--vrt-file` mode remains restricted to VRTs referencing 1° input tiles.
+
+The VRT is published atomically after all eligible outputs pass validation.
+Failed or cancelled stages publish no new mosaic VRT. Resume regenerates a
+missing VRT after checking the COGs, without rewriting them; this also applies
+to older compatible runs. VRT ownership is recorded separately from the existing
+resume signature, and unrelated or modified VRTs at the target name are refused.
+Stages producing a single COG, including consolidation, have **no accompanying
+VRT**. Temporary conversion VRTs remain private staging files.
+
 ## Float32 SRTM with WGS84 ellipsoidal heights
 
 [OpenTopography SRTM GL1 Global 30m Ellipsoidal](https://portal.opentopography.org/raster?opentopoID=OTSRTM.082016.4326.1)
@@ -70,12 +142,13 @@ an explicit `VERTICAL_DATUM` entry when present, is retained in the outputs.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--vrt-file` | Required | Local VRT with local TIFF references. Relative paths resolve against the VRT directory. Absolute and UNC paths are supported. |
+| `--vrt-file` | One input mode required | Local VRT with local 1° TIFF references. Mutually exclusive with `--merge-results-dir`. Relative paths resolve against the VRT directory. Absolute and UNC paths are supported. |
+| `--merge-results-dir` | One input mode required | Directory of previously merged TIFFs; create one COG with internal average overviews covering their combined bounds. |
 | `--output-dir` | Required | New/empty directory, or the directory of a compatible resumable run. May be a subdirectory of the source collection. |
 | `--block-size DEGREES` | `10` | Positive integer divisor of 360; nominal geographic block size in degrees. Latitude bands are clipped at the poles. Use `360` for one whole-world COG. |
 | `--workers` | `8` | Maximum concurrent blocks. Each GDAL conversion uses one compression thread. |
-| `--verify` | Off | Check every full-resolution value and NoData flag against original TIFFs, plus full COG structure. Applies to existing outputs on resume too. |
-| `--build-overviews` | Off | Build fresh internal average overviews during COG conversion. |
+| `--verify` | Off | Check every full-resolution value and NoData flag against the selected input TIFFs, plus full COG structure. Applies to existing outputs on resume too. |
+| `--build-overviews` | Off in VRT mode; always on for consolidation | Build fresh internal average overviews during COG conversion. |
 | `--disk-space-policy {warn,error}` | `warn` | Warn and continue if estimated space is insufficient or free space cannot be queried. Use `error` to stop before starting a block in these cases. |
 | `--min-tiles-per-block` | `1` | Minimum distinct available nominal 1° source tiles belonging to a block. Boundary-only neighbors do not inflate the count. |
 | `--filename-filter` | None | Case-insensitive substring of the basename, including extension. For example `"n32e"` selects northern 32° tiles in eastern longitudes. |
@@ -160,8 +233,9 @@ including ocean areas without source coverage, also remain NoData.
 
 Outputs use DEFLATE level 6, integer predictor 2 (`PREDICTOR=STANDARD`) for Int16
 or floating-point predictor 3 (`PREDICTOR=FLOATING_POINT`) for Float32,
-512 × 512 tiles, and `BIGTIFF=IF_SAFER`. BigTIFF selection is GDAL's heuristic.
-Overviews are explicitly disabled unless requested. When enabled, average
+512 × 512 tiles, and `BIGTIFF=IF_SAFER` for ordinary blocks; consolidation uses
+`BIGTIFF=YES`. `IF_SAFER` selection is GDAL's heuristic.
+In VRT mode, overviews are explicitly disabled unless requested. When enabled, average
 overviews are created at powers of two until the largest dimension is at most
 512. GDAL's COG generator may round odd overview dimensions down rather than
 up; the recorded dimensions reflect the installed driver. Existing source
@@ -172,7 +246,7 @@ Every candidate is closed and reopened to check dimensions, georeferencing,
 CRS, data type, NoData, selected metadata, compression, tile size, overview
 dimensions, and basic COG structure before publication. `--verify` additionally
 uses the GDAL validator's `full_check=True` and independently composes every
-base-resolution window from original TIFF values/georeferencing and source
+base-resolution window from the selected input TIFF values/georeferencing and source
 precedence. Values and validity must match exactly, including gaps and seams.
 This is not a comparison against the temporary block VRT. Overview pixels are
 derived average values, outside the base-sample equality guarantee; their
@@ -215,6 +289,7 @@ always fail the affected block and are checkpointed normally.
 The output directory contains:
 
 - COG TIFFs, published only after the required checks succeed.
+- `<output-prefix>_mosaic.vrt` for a successfully completed multi-COG stage.
 - `state.json`: atomic checkpoint, input/configuration identity, missing files,
   per-block status, contributing sources, and verification results.
 - `summary.csv`: one row per planned block, including counts, status, time,
