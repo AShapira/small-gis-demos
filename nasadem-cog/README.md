@@ -122,6 +122,14 @@ Keep the VRT's referenced directory structure, or use a local subset VRT that
 references only the downloaded tiles. The provider's full VRT is named
 `SRTM_GL1_Ellip_srtm.vrt` and references `SRTM_GL1_Ellip_srtm/`.
 
+The provider VRT includes `<OverviewList resampling="nearest">2 4 8</OverviewList>`.
+This is a valid GDAL declaration of virtual reduced-resolution previews. The
+merger accepts it but does not copy it into generated block VRTs or use it for
+base elevations. `--build-overviews` still creates fresh internal average
+overviews from full-resolution data. Older merger versions rejected this element
+with `Unsupported VRT dataset element`; update `create_nasadem_cogs.py` without
+editing or downloading the input VRT/tiles again.
+
 ```cmd
 python create_nasadem_cogs.py ^
   --vrt-file "D:\Maps\SRTM_GL1_Ellip\SRTM_GL1_Ellip_srtm.vrt" ^

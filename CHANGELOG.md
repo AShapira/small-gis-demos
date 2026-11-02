@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Accept the provider SRTM VRT's `OverviewList` declaration in the NASADEM/SRTM
+  merger without reusing its preview overviews. Name unsupported dataset XML
+  elements in preflight errors while retaining mask/transformation checks.
+
 - Estimate NASADEM storage from compressed source sizes, existing overviews,
   compressed NoData coverage, and temporary COG work instead of three raw copies.
   Warn and continue by default; make stopping optional with `--disk-space-policy error`.

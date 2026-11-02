@@ -530,6 +530,39 @@ class MergerTests(unittest.TestCase):
         with self.assertRaisesRegex(merger.InputError, "georeferencing"):
             self.run_merge()
 
+    def test_vrt_overview_list_preserves_base_values_without_output_overviews(self):
+        for data_type in ("Int16", "Float32"):
+            with self.subTest(data_type=data_type):
+                self.data_type = data_type
+                self.tiles = []
+                self.output = self.root / data_type
+                values = np.array([[0, -1, 2], [3, -32768, 5], [6, 7, 8]],
+                                  dtype="float32" if data_type == "Float32" else "int16")
+                if data_type == "Float32":
+                    values[0, 0] = -430.125
+                self.tile(values=values, name=f"{data_type}.tif")
+                root = self.write_vrt()
+                ET.SubElement(root, "OverviewList", resampling="nearest").text = "2 4 8"
+                ET.ElementTree(root).write(self.vrt)
+                original = self.vrt.read_bytes()
+                self.assertEqual(self.run_merge("--block-size", "1", "--verify"), 0)
+                with merger.opened(next(self.output.glob("*.tif"))) as ds:
+                    np.testing.assert_array_equal(ds.ReadAsArray(), values)
+                    self.assertEqual(ds.GetRasterBand(1).GetOverviewCount(), 0)
+                self.assertEqual(self.vrt.read_bytes(), original)
+
+    def test_unsupported_dataset_elements_are_named_and_rejected(self):
+        self.tile()
+        for tag in ("MaskBand", "GCPList", "UnknownElement"):
+            with self.subTest(tag=tag):
+                root = self.write_vrt()
+                ET.SubElement(root, "OverviewList", resampling="nearest").text = "2 4 8"
+                ET.SubElement(root, tag)
+                ET.ElementTree(root).write(self.vrt)
+                with self.assertRaisesRegex(merger.InputError,
+                                            f"Unsupported VRT dataset element.*{tag}"):
+                    self.run_merge()
+
     def test_accumulated_pixel_spacing_drift_is_rejected(self):
         self.n = 64
         self.tile(step_error=1e-6)
@@ -887,7 +920,9 @@ class MergerTests(unittest.TestCase):
         overview = None
         merger.close(ds)
         ds = None
-        self.write_vrt()
+        root = self.write_vrt()
+        ET.SubElement(root, "OverviewList", resampling="nearest").text = "2 4 8"
+        ET.ElementTree(root).write(self.vrt)
         self.assertEqual(self.run_merge("--verify", "--build-overviews"), 0)
         with merger.opened(next(self.output.glob("*.tif"))) as result:
             values = result.GetRasterBand(1).GetOverview(0).ReadAsArray()

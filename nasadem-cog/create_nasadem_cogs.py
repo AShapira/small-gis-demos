@@ -339,8 +339,14 @@ def read_inventory(vrt_file, filename_filter=None, cancel=None, progress=None):
     root = ET.fromstring(raw)
     if root.tag != "VRTDataset" or root.get("subClass"):
         raise InputError("Expected an ordinary, unwarped VRTDataset")
-    if any(c.tag not in {"SRS", "GeoTransform", "Metadata", "VRTRasterBand"} for c in root):
-        raise InputError("Unsupported VRT dataset element (for example a dataset mask or GCPs)")
+    # OverviewList declares virtual reduced-resolution views, not a base-pixel
+    # transformation. Ignore it when rebuilding block VRTs; output overviews
+    # are controlled separately and always generated from full-resolution data.
+    allowed_dataset = {"SRS", "GeoTransform", "Metadata", "VRTRasterBand", "OverviewList"}
+    unsupported = sorted({c.tag for c in root if c.tag not in allowed_dataset})
+    if unsupported:
+        raise InputError(f"Unsupported VRT dataset element(s): {', '.join(unsupported)} "
+                         "(for example a dataset mask or GCPs)")
     bands = root.findall("VRTRasterBand")
     if (len(bands) != 1 or bands[0].get("dataType") not in ("Int16", "Float32")
             or bands[0].get("subClass")):

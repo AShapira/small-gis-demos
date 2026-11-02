@@ -318,3 +318,46 @@ Evidence is under ignored `.validation/nasadem-statistics/`: `full-tests.log`,
 `real-dry-run.json`, `real-validation.log`, `real-validation.json`, and
 `real-cog/state.json`. This is native GDAL validation; remote CI and QGIS desktop
 rendering were not exercised for this change.
+
+## Provider SRTM VRT overview declaration — 2026-11-02
+
+Downloaded the current public
+[`SRTM_GL1_Ellip_srtm.vrt`](https://opentopography.s3.sdsc.edu/raster/SRTM_GL1_Ellip/SRTM_GL1_Ellip_srtm.vrt)
+(6,641,364 bytes; SHA-256
+`4fd062ea3d89444e0ffc4cfa39f1d7dc38257405dd6c9ccd37a23980248d7120`).
+It describes one Float32 band, 1,296,001 × 417,601 samples, NoData -32768,
+and 14,280 relative `ComplexSource` tile references. Its final dataset child is
+`<OverviewList resampling="nearest">2 4 8</OverviewList>`.
+
+Native QGIS reproduced the original `Unsupported VRT dataset element` error
+before any tile inspection. The parser allowlist omitted this valid GDAL
+virtual-overview declaration. It now accepts and ignores the declaration when
+rebuilding block VRTs, retaining the existing full-resolution composition and
+fresh output-overview policy. Unsupported dataset elements remain errors and
+are now named in the message.
+
+All **78/78 tests** passed on Windows QGIS 4.2 / Python 3.12.13 / GDAL 3.13.1.
+Regression coverage includes Int16/Float32 base values, unchanged input VRTs,
+no unsolicited output overviews, rejection of dataset masks/GCPs/unknown XML,
+and fresh average overviews despite deliberately incorrect source overviews.
+
+Real acceptance used the unchanged downloaded VRT with a filename filter for
+the retained `N32E036_wgs84.tif` and a 1° output block. All **12,967,201** base
+pixels passed exhaustive merger verification and an independent NumPy equality
+comparison against the source. The provider VRT's 3,599 × 3,599 tile interior
+also matched independently; border reads were excluded from that VRT comparison
+because its neighboring tiles were not included in this validation subset.
+The COG passed full structural validation without warnings and contains fresh
+1,800 × 1,800, 900 × 900, and 450 × 450 internal overviews.
+
+The current provider `N32E038_wgs84.tif` was also downloaded to recheck the old
+defect recorded above. Its SHA-256 is now
+`79dda14c4c32927e526c34822d4fe9b288d4fa8554383014d86221320c5c14d1`;
+it contains nonzero elevations, declares NoData -32768, and passes preflight.
+The older retained defective copy has a different hash. This check does not
+validate the terrain accuracy of the replacement or the entire global dataset.
+
+Evidence is under ignored `.validation/srtm-provider-vrt/`: the downloaded VRT,
+`full-tests.log`, `real-merge.log`, `real-validation.json`, and `real-cog/state.json`.
+The user's `D:\Maps` collection, a global merge, remote CI, and QGIS desktop
+rendering were not exercised.
