@@ -2,10 +2,6 @@
 
 ## Unreleased
 
-- Accept the provider SRTM VRT's `OverviewList` declaration in the NASADEM/SRTM
-  merger without reusing its preview overviews. Name unsupported dataset XML
-  elements in preflight errors while retaining mask/transformation checks.
-
 - Estimate NASADEM storage from compressed source sizes, existing overviews,
   compressed NoData coverage, and temporary COG work instead of three raw copies.
   Warn and continue by default; make stopping optional with `--disk-space-policy error`.
@@ -20,6 +16,19 @@
 - Validate finished COG tile structure, enforce size targets after conversion
   including overviews, and retain CPU/RAM controls and cooperative cancellation.
   Document options, temporary storage costs and COG codec compatibility.
+
+## 0.17.0 — 2026-11-04
+
+- Default NASADEM/SRTM COG overviews to nearest-neighbor in VRT and consolidation
+  modes. Keep `--overview-resampling average` available for averaged terrain
+  overviews; full-resolution values, NoData, types, and statistics are unchanged.
+- Distinguish overview methods in resume state. Explicit average mode can resume
+  older runs; the new default refuses to mix nearest and legacy average outputs.
+- Explain the Float32 storage tradeoff: a 260-tile SRTM sample used 4.363 GB with
+  average overviews versus 2.975 GB with nearest, with identical base pixels.
+- Accept the provider SRTM VRT's `OverviewList` declaration without reusing its
+  preview overviews. Name unsupported dataset XML elements in preflight errors
+  while retaining mask/transformation checks.
 
 ## 0.16.0 — 2026-11-02
 

@@ -54,7 +54,8 @@ python create_nasadem_cogs.py ^
   --verify
 ```
 
-This writes **`NASADEM_merged.tif`**, with fresh internal average overviews.
+This writes **`NASADEM_merged.tif`**, with fresh internal nearest-neighbor overviews
+by default. Use `--overview-resampling average` for averaged overviews.
 Use `--output-prefix SRTM_GL1_Ellip` to name it `SRTM_GL1_Ellip_merged.tif`.
 Add `--dry-run` first to inspect the selected files, exact extent/dimensions,
 overview dimensions, and compressed output/working-space estimates without
@@ -81,8 +82,8 @@ without `--verify`. `--verify` additionally compares every output pixel and
 validity flag against these input TIFFs, not against the unavailable originals.
 
 Consolidation always uses BigTIFF, DEFLATE level 6, the type-specific predictor,
-512-pixel tiles, and newly generated internal average overviews. Source overviews
-are ignored. No overview levels are necessary when the image already fits
+512-pixel tiles, and newly generated internal nearest-neighbor overviews by
+default. Source overviews are ignored. No overview levels are necessary when the image already fits
 512 × 512. `--build-overviews` is accepted but redundant in this mode.
 `--block-size` and `--min-tiles-per-block` apply only to `--vrt-file`.
 `--workers` still controls concurrent output files; consolidation has only one
@@ -125,9 +126,10 @@ references only the downloaded tiles. The provider's full VRT is named
 The provider VRT includes `<OverviewList resampling="nearest">2 4 8</OverviewList>`.
 This is a valid GDAL declaration of virtual reduced-resolution previews. The
 merger accepts it but does not copy it into generated block VRTs or use it for
-base elevations. `--build-overviews` still creates fresh internal average
-overviews from full-resolution data. Older merger versions rejected this element
-with `Unsupported VRT dataset element`; update `create_nasadem_cogs.py` without
+base elevations. `--build-overviews` creates fresh internal overviews from
+full-resolution data, using `--overview-resampling` (default `nearest`). The
+provider declaration does not override this selection. Older merger versions
+rejected this element with `Unsupported VRT dataset element`; update `create_nasadem_cogs.py` without
 editing or downloading the input VRT/tiles again.
 
 ```cmd
@@ -146,17 +148,51 @@ EGM96 heights. Use inputs with a consistent height reference and keep that
 provenance with the data. Default-domain metadata on the input VRT, including
 an explicit `VERTICAL_DATUM` entry when present, is retained in the outputs.
 
+## Overview method and storage
+
+**Nearest-neighbor is the default whenever overviews are generated**, for both
+VRT blocks and consolidation. Overviews are reduced-resolution copies used
+when viewing or reading the DEM at a smaller scale. Nearest-neighbor selects
+existing samples; `--overview-resampling average` computes weighted averages
+of contributing valid samples. Average is useful when you want an averaged
+terrain representation, but its new fractional Float32 values can compress
+much less efficiently. Both choices preserve the full-resolution elevations,
+NoData, data type, height reference, and exact full-resolution statistics.
+
+A 260-tile sample of OpenTopography's October 29, 2026 SRTM GL1 Ellipsoidal
+update was merged into three 10° COGs with DEFLATE-6, floating-point predictor 3,
+and 512-pixel tiles. Measured sizes were:
+
+| Product | Full-resolution data | Overviews | Total |
+| --- | ---: | ---: | ---: |
+| Downloaded source TIFFs | 1.993 GB | 0.888 GB | 2.882 GB |
+| Merged COGs with average overviews | 2.048 GB | 2.315 GB | 4.363 GB |
+| Same grids with nearest-neighbor overviews | 2.048 GB | 0.927 GB | 2.975 GB |
+
+These are decimal GB; totals include small TIFF metadata overheads. Nearest
+used **31.8% less storage** than average in this sample, with identical base
+pixels. Both used lossless DEFLATE and predictor 3; changing the resampler
+explained most of the size difference. This measured ratio is not a guarantee
+for every terrain or dataset. See [validation details](validation-report.md).
+
+In VRT mode, `--build-overviews` is still required to create overviews; choosing
+a resampler alone does not enable them. Consolidation always generates them.
+Older runs used average: resume those with `--overview-resampling average`, or
+choose a new output directory to generate nearest-neighbor overviews. Completed
+COGs are never rewritten in place to change the method.
+
 ## Parameters
 
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `--vrt-file` | One input mode required | Local VRT with local 1° TIFF references. Mutually exclusive with `--merge-results-dir`. Relative paths resolve against the VRT directory. Absolute and UNC paths are supported. |
-| `--merge-results-dir` | One input mode required | Directory of previously merged TIFFs; create one COG with internal average overviews covering their combined bounds. |
+| `--merge-results-dir` | One input mode required | Directory of previously merged TIFFs; create one COG with internal overviews covering their combined bounds. |
 | `--output-dir` | Required | New/empty directory, or the directory of a compatible resumable run. May be a subdirectory of the source collection. |
 | `--block-size DEGREES` | `10` | Positive integer divisor of 360; nominal geographic block size in degrees. Latitude bands are clipped at the poles. Use `360` for one whole-world COG. |
 | `--workers` | `8` | Maximum concurrent blocks. Each GDAL conversion uses one compression thread. |
 | `--verify` | Off | Check every full-resolution value and NoData flag against the selected input TIFFs, plus full COG structure. Applies to existing outputs on resume too. |
-| `--build-overviews` | Off in VRT mode; always on for consolidation | Build fresh internal average overviews during COG conversion. |
+| `--build-overviews` | Off in VRT mode; always on for consolidation | Build fresh internal overviews during COG conversion. |
+| `--overview-resampling {nearest,average}` | `nearest` | Method for newly generated overviews in either mode. Nearest selects existing samples and keeps Float32 SRTM outputs compact; average produces an averaged terrain representation and can require substantially more storage. Does not enable overviews by itself. |
 | `--disk-space-policy {warn,error}` | `warn` | Warn and continue if estimated space is insufficient or free space cannot be queried. Use `error` to stop before starting a block in these cases. |
 | `--min-tiles-per-block` | `1` | Minimum distinct available nominal 1° source tiles belonging to a block. Boundary-only neighbors do not inflate the count. |
 | `--filename-filter` | None | Case-insensitive substring of the basename, including extension. For example `"n32e"` selects northern 32° tiles in eastern longitudes. |
@@ -286,8 +322,9 @@ Outputs use DEFLATE level 6, integer predictor 2 (`PREDICTOR=STANDARD`) for Int1
 or floating-point predictor 3 (`PREDICTOR=FLOATING_POINT`) for Float32,
 512 × 512 tiles, and `BIGTIFF=IF_SAFER` for ordinary blocks; consolidation uses
 `BIGTIFF=YES`. `IF_SAFER` selection is GDAL's heuristic.
-In VRT mode, overviews are explicitly disabled unless requested. When enabled, average
-overviews are created at powers of two until the largest dimension is at most
+In VRT mode, overviews are explicitly disabled unless requested. When enabled,
+overviews use nearest-neighbor by default, or explicit `--overview-resampling average`,
+at powers of two until the largest dimension is at most
 512. GDAL's COG generator may round odd overview dimensions down rather than
 up; the recorded dimensions reflect the installed driver. Existing source
 overviews are not copied. Never add overviews to or edit a
@@ -300,8 +337,9 @@ uses the GDAL validator's `full_check=True` and independently composes every
 base-resolution window from the selected input TIFF values/georeferencing and source
 precedence. Values and validity must match exactly, including gaps and seams.
 This is not a comparison against the temporary block VRT. Overview pixels are
-derived average values, outside the base-sample equality guarantee; their
-generation is covered by tests.
+selected samples or derived averages according to the chosen method; the
+base-sample equality guarantee applies at full resolution. Both overview
+methods are covered by independent pixel-reference tests.
 
 Workers own their dataset handles. Verification uses 512-pixel windows and
 bounded source-reader caches; whole blocks are not loaded into Python memory.
@@ -326,6 +364,8 @@ plus the staging VRT. `storage_reservation_bytes` is their sum with a **10% work
 margin**; the disk check adds **1 GiB headroom**. These are estimates, not upper
 bounds: source compression, overview compression, terrain, and GDAL versions
 can change the actual result. No source files are modified by estimation.
+In particular, averaged Float32 overviews can be substantially larger than an
+estimate based on compact nearest-neighbor source overviews.
 
 The default **`--disk-space-policy warn`** logs a warning and continues when a
 block's estimated working space exceeds free space. Scheduling still reduces
@@ -355,8 +395,12 @@ paths/sizes/modification times (including GDAL-reported dependencies), and
 output-affecting options must match. Changing workers, disk-space policy, or adding `--verify` is
 allowed. Changed input files, newly available formerly missing files, changed
 block size/filter/minimum/overview/prefix options require a new output directory.
-Existing Int16 runs with the default `NASADEM` prefix retain their original
-resume identity and can be resumed after this Float32 extension.
+The overview resampler is part of the resume identity when overviews are enabled.
+For runs created before 0.17.0 with overviews, explicitly pass
+`--overview-resampling average` to retain the legacy identity and continue
+without rewriting completed COGs. The new nearest default refuses those states
+to prevent mixing overview methods. Runs without overviews retain their original
+resume identity; the unused resampler choice does not affect them.
 Source size/time signatures detect ordinary changes; they are not content hashes
 or protection against edits that deliberately preserve metadata.
 

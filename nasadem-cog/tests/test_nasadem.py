@@ -25,6 +25,22 @@ sys.modules[SPEC.name] = merger
 SPEC.loader.exec_module(merger)
 
 
+def overview_reference(ds, overview, resampling):
+    """Independent first-level oracle; never read the output overview pixels."""
+    if resampling == "nearest":
+        # GDAL's overview sampler rounds destination index * ratio to the
+        # nearest source index. A general Translate resize uses pixel centers.
+        # https://github.com/OSGeo/gdal/blob/master/gcore/overview.cpp
+        x = np.floor(.5 + np.arange(overview.XSize) * (ds.RasterXSize / overview.XSize)).astype(int)
+        y = np.floor(.5 + np.arange(overview.YSize) * (ds.RasterYSize / overview.YSize)).astype(int)
+        return ds.ReadAsArray()[np.ix_(y, x)]
+    reference = gdal.Translate("", ds, format="MEM", width=overview.XSize,
+                               height=overview.YSize, resampleAlg=resampling, overviewLevel="NONE")
+    result = reference.ReadAsArray()
+    merger.close(reference)
+    return result
+
+
 class MergerTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="nasadem-test-")
@@ -231,10 +247,7 @@ class MergerTests(unittest.TestCase):
             self.assertEqual(band.GetOverviewCount(), 1)
             overview = band.GetOverview(0)
             self.assertEqual(overview.DataType, gdal.GDT_Float32)
-            reference = gdal.Translate("", ds, format="MEM", width=overview.XSize,
-                                       height=overview.YSize, resampleAlg="average", overviewLevel="NONE")
-            np.testing.assert_allclose(overview.ReadAsArray(), reference.ReadAsArray(), rtol=1e-6, atol=1e-6)
-            merger.close(reference)
+            np.testing.assert_array_equal(overview.ReadAsArray(), overview_reference(ds, overview, "nearest"))
 
     def test_output_prefix_rejects_paths_and_preserves_default_resume_config(self):
         for prefix in ("../outside", "a/b", "a\\b", "/tmp/output", ""):
@@ -256,12 +269,14 @@ class MergerTests(unittest.TestCase):
         self.assertEqual(args.block_size, 10)
         self.assertFalse(args.verify)
         self.assertFalse(args.build_overviews)
+        self.assertEqual(args.overview_resampling, "nearest")
         self.assertEqual(args.disk_space_policy, "warn")
         with contextlib.redirect_stdout(io.StringIO()) as out:
             self.assertEqual(merger.run(self.args("--dry-run")), 0)
         report = json.loads(out.getvalue())
         self.assertEqual(report["blocks"][0]["dimensions"], [21, 21])
         self.assertEqual(report["disk_space_policy"], "warn")
+        self.assertIsNone(report["overview_resampling"])
         estimate = report["blocks"][0]
         self.assertEqual(estimate["storage_estimate_method"], "source-compression-v1")
         self.assertGreater(estimate["estimated_output_bytes"], 0)
@@ -877,13 +892,7 @@ class MergerTests(unittest.TestCase):
             overview = band.GetOverview(0)
             self.assertIn(overview.XSize, (320, 321))
             self.assertEqual(overview.XSize, overview.YSize)
-            # Independent base-image resampling: explicitly prohibit reuse of
-            # the output overview that we are testing.
-            reference = gdal.Translate("", ds, format="MEM", width=overview.XSize,
-                                       height=overview.YSize, resampleAlg="average", overviewLevel="NONE")
-            np.testing.assert_array_equal(band.GetOverview(0).ReadAsArray(),
-                                          reference.GetRasterBand(1).ReadAsArray())
-            merger.close(reference)
+            np.testing.assert_array_equal(overview.ReadAsArray(), overview_reference(ds, overview, "nearest"))
         self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), before)
 
     def test_native_resolution_plan(self):
@@ -923,10 +932,57 @@ class MergerTests(unittest.TestCase):
         root = self.write_vrt()
         ET.SubElement(root, "OverviewList", resampling="nearest").text = "2 4 8"
         ET.ElementTree(root).write(self.vrt)
-        self.assertEqual(self.run_merge("--verify", "--build-overviews"), 0)
+        self.assertEqual(self.run_merge("--verify", "--build-overviews",
+                                       "--overview-resampling", "average"), 0)
         with merger.opened(next(self.output.glob("*.tif"))) as result:
             values = result.GetRasterBand(1).GetOverview(0).ReadAsArray()
             self.assertTrue(np.all(values[values != -32768] == 10))
+
+    def test_overview_policy_resume_and_legacy_average(self):
+        self.n = 64
+        self.data_type = "Float32"
+        self.tile(values=np.arange(65 * 65).reshape(65, 65) * .125 + .03125)
+        self.write_vrt()
+        for method in ("average", "nearest"):
+            with self.subTest(method=method):
+                self.output = self.root / method
+                options = ("--build-overviews", "--overview-resampling", method)
+                self.assertEqual(self.run_merge(*options, "--verify"), 0)
+                state = self.state()
+                if method == "average":
+                    # Pre-0.17 runs did not record a resampler: their overviews
+                    # were always average. Reproduce that state on disk.
+                    self.assertNotIn("overview_resampling", state["identity"]["config"])
+                    state.pop("overview_resampling")
+                    merger.atomic_json(self.output / "state.json", state)
+                else:
+                    self.assertEqual(state["identity"]["config"]["overview_resampling"], "nearest")
+                final, = self.output.glob("*.tif")
+                before = (final.read_bytes(), final.stat().st_mtime_ns)
+                before_state = (self.output / "state.json").read_bytes()
+                other = "nearest" if method == "average" else "average"
+                with self.assertRaisesRegex(merger.InputError, "different inputs/options"):
+                    self.run_merge("--build-overviews", "--overview-resampling", other)
+                self.assertEqual((self.output / "state.json").read_bytes(), before_state)
+                self.assertEqual(self.run_merge(*options, "--verify"), 0)
+                self.assertEqual((final.read_bytes(), final.stat().st_mtime_ns), before)
+                self.assertEqual(self.state()["overview_resampling"], method)
+                with merger.opened(final) as ds:
+                    overview = ds.GetRasterBand(1).GetOverview(0)
+                    np.testing.assert_allclose(overview.ReadAsArray(), overview_reference(ds, overview, method),
+                                               rtol=1e-6, atol=1e-6)
+
+    def test_overview_policy_without_overviews_is_inactive(self):
+        self.tile()
+        self.write_vrt()
+        self.assertEqual(self.run_merge(), 0)
+        final, = self.output.glob("*.tif")
+        before = final.stat().st_mtime_ns
+        self.assertEqual(self.run_merge("--overview-resampling", "average"), 0)
+        self.assertEqual(final.stat().st_mtime_ns, before)
+        self.assertIsNone(self.state()["overview_resampling"])
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            self.args("--overview-resampling", "cubic")
 
     @unittest.skipUnless(os.name == "nt", "Native Windows console signal test")
     def test_real_windows_ctrl_c_and_cli_resume(self):

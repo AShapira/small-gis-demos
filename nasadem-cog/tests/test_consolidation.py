@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 from osgeo import gdal, osr
 
-from test_nasadem import merger
+from test_nasadem import merger, overview_reference
 
 
 class ConsolidationTests(unittest.TestCase):
@@ -141,7 +141,7 @@ class ConsolidationTests(unittest.TestCase):
         self.assertIn("a.tif", self.messages)
         self.assertFalse(list(self.output.glob("*.tif")))
 
-    def test_overviews_fresh_internal_average_bigtiff_and_fractional_nodata(self):
+    def test_overviews_fresh_internal_nearest_or_average_bigtiff_and_fractional_nodata(self):
         values = np.full((257, 1025), 4.375, dtype="float32")
         values[:, 512:] = 10.125
         values[0:8, 0:8] = -9999.25
@@ -151,22 +151,39 @@ class ConsolidationTests(unittest.TestCase):
         for i in range(ds.GetRasterBand(1).GetOverviewCount()):
             ds.GetRasterBand(1).GetOverview(i).Fill(999)
         merger.close(ds)
-        self.assertEqual(self.run_merge("--verify", "--output-prefix", "SRTM"), 0, self.messages)
-        final = self.output / "SRTM_merged.tif"
-        with final.open("rb") as f:
-            self.assertIn(f.read(4), (b"II+\x00", b"MM\x00+"))
-        with merger.opened(final) as ds:
-            b = ds.GetRasterBand(1)
-            np.testing.assert_array_equal(b.ReadAsArray(), values)
-            self.assertEqual(b.GetOverviewCount(), 2)
-            overview = b.GetOverview(0)
-            reference = gdal.Translate("", ds, format="MEM", width=overview.XSize,
-                                       height=overview.YSize, resampleAlg="average", overviewLevel="NONE")
-            np.testing.assert_array_equal(overview.ReadAsArray(), reference.ReadAsArray())
-            merger.close(reference)
-            self.assertTrue(all(not p.lower().endswith(".ovr") for p in ds.GetFileList()))
-        self.assertFalse(list(self.output.glob("*.ovr")))
-        self.assertFalse(list(self.output.glob("*.msk")))
+        for method in ("nearest", "average"):
+            with self.subTest(method=method):
+                target = self.root / method
+                options = () if method == "nearest" else ("--overview-resampling", "average")
+                self.assertEqual(self.run_merge("--verify", "--output-prefix", "SRTM",
+                                                *options, output=target), 0, self.messages)
+                self.assertEqual(self.state(target)["overview_resampling"], method)
+                final = target / "SRTM_merged.tif"
+                with final.open("rb") as f:
+                    self.assertIn(f.read(4), (b"II+\x00", b"MM\x00+"))
+                with merger.opened(final) as ds:
+                    b = ds.GetRasterBand(1)
+                    np.testing.assert_array_equal(b.ReadAsArray(), values)
+                    self.assertEqual(b.GetOverviewCount(), 2)
+                    overview = b.GetOverview(0)
+                    np.testing.assert_array_equal(overview.ReadAsArray(), overview_reference(ds, overview, method))
+                    self.assertTrue(all(not p.lower().endswith(".ovr") for p in ds.GetFileList()))
+                self.assertFalse(list(target.glob("*.ovr")))
+                self.assertFalse(list(target.glob("*.msk")))
+
+    def test_legacy_average_consolidation_requires_explicit_resampling(self):
+        self.raster()
+        self.assertEqual(self.run_merge("--overview-resampling", "average"), 0)
+        state = self.state()
+        self.assertNotIn("overview_resampling", state["identity"]["config"])
+        state.pop("overview_resampling")
+        merger.atomic_json(self.output / "state.json", state)
+        final = self.output / "NASADEM_merged.tif"
+        before = (final.read_bytes(), final.stat().st_mtime_ns)
+        with self.assertRaisesRegex(merger.InputError, "different inputs/options"):
+            self.run_merge()
+        self.assertEqual(self.run_merge("--overview-resampling", "average", "--verify"), 0)
+        self.assertEqual((final.read_bytes(), final.stat().st_mtime_ns), before)
 
     def test_filter_single_input_and_nonrecursive_discovery(self):
         self.raster("selected.TIF")

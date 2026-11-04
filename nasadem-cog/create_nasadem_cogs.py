@@ -1030,7 +1030,7 @@ class Progress:
 
 
 def process_block(inv, block, output, overviews, exhaustive, cancel, progress, adopted=False,
-                  statistics_policy=None):
+                  statistics_policy=None, overview_resampling="nearest"):
     start = time.monotonic()
     inputs = [record for source in block.sources for record in source.files]
     unchanged(inputs)
@@ -1063,7 +1063,9 @@ def process_block(inv, block, output, overviews, exhaustive, cancel, progress, a
                "NUM_THREADS=1", "STATISTICS=AUTO",
                "OVERVIEWS=IGNORE_EXISTING" if overviews else "OVERVIEWS=NONE"]
     if overviews:
-        options.append("OVERVIEW_RESAMPLING=AVERAGE")
+        # Nearest selects existing samples and keeps Float32 SRTM overviews
+        # compact. Averaging creates fractional values that compress less well.
+        options.append(f"OVERVIEW_RESAMPLING={overview_resampling.upper()}")
         options.append(f"OVERVIEW_COUNT={len(overview_dimensions(*block.window[2:]))}")
 
     def callback(fraction, message, data):
@@ -1110,6 +1112,11 @@ def prepare_state(output, inv, blocks, args):
     # Keep the original Int16/default-prefix resume signature unchanged.
     if args.output_prefix != "NASADEM":
         config["output_prefix"] = args.output_prefix
+    # A missing resampler in legacy identities means AVERAGE. Keep that
+    # signature for explicit average resumes, but distinguish the new default
+    # so one stage cannot mix old average and new nearest overviews.
+    if args.build_overviews and args.overview_resampling != "average":
+        config["overview_resampling"] = args.overview_resampling
     identity = {"input": inv.identity, "config": config}
     signature = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     state_path = output / "state.json"
@@ -1144,6 +1151,7 @@ def prepare_state(output, inv, blocks, args):
         check_stage_vrt(output, state, f"{args.output_prefix}_mosaic.vrt")
     state.update(status="running", workers=args.workers, verify=args.verify,
                  disk_space_policy=args.disk_space_policy,
+                 overview_resampling=args.overview_resampling if args.build_overviews else None,
                  started_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
                  runtime={"python": sys.version.split()[0], "gdal": gdal.VersionInfo("RELEASE_NAME")})
     return state
@@ -1236,6 +1244,8 @@ def execute(inv, blocks, output, args, cancel):
         log(f"Estimated compressed COG output: {total_output:,} bytes; "
             f"disk space policy: {args.disk_space_policy}. Estimates are approximate.")
         log("New COGs include exact statistics: scanning every full-resolution pixel before conversion")
+        if args.build_overviews:
+            log(f"Building fresh {args.overview_resampling} overviews; full-resolution elevations are unchanged")
         if inv.missing:
             log("Missing files are recorded in state.json; uncovered pixels will be NoData")
         if inv.consolidating:
@@ -1285,7 +1295,7 @@ def execute(inv, blocks, output, args, cancel):
                         log(f"Starting {block.name} ({block.tile_count} {kind})")
                         future = pool.submit(process_block, inv, block, output, args.build_overviews,
                                              args.verify, cancel, progress, adopted,
-                                             previous.get("statistics_policy"))
+                                             previous.get("statistics_policy"), args.overview_resampling)
                         active[future] = (block, needed)
                     if active:
                         done, _ = wait(active, timeout=1, return_when=FIRST_COMPLETED)
@@ -1358,7 +1368,11 @@ def parser():
                              "360 creates one whole-world COG")
     result.add_argument("--workers", type=int, default=8)
     result.add_argument("--verify", action="store_true", help="Verify every base pixel and full COG structure")
-    result.add_argument("--build-overviews", action="store_true", help="Create internal average overviews")
+    result.add_argument("--build-overviews", action="store_true", help="Create internal overviews (nearest by default)")
+    result.add_argument("--overview-resampling", choices=("nearest", "average"), default="nearest",
+                        help="Overview method: nearest (default) keeps existing sample values and "
+                             "compact Float32 overviews; average creates weighted averages that "
+                             "can require substantially more storage. Base elevations are unchanged")
     result.add_argument("--disk-space-policy", choices=("warn", "error"), default="warn",
                         help="Warn and continue when estimated space is insufficient (default), "
                              "or stop before starting a block with error")
@@ -1382,6 +1396,8 @@ def run(args, cancel=None):
     output_prefix_argument(args.output_prefix)
     if args.disk_space_policy not in ("warn", "error"):
         raise InputError("Disk space policy must be warn or error")
+    if args.overview_resampling not in ("nearest", "average"):
+        raise InputError("Overview resampling must be nearest or average")
     if args.workers < 1 or args.min_tiles_per_block < 1:
         raise InputError("Workers and minimum tiles per block must be positive")
     configure()
@@ -1410,6 +1426,7 @@ def run(args, cancel=None):
                           "data_type": inv.data_type, "nodata": inv.nodata,
                           "output_prefix": args.output_prefix,
                           "disk_space_policy": args.disk_space_policy,
+                          "overview_resampling": args.overview_resampling if args.build_overviews else None,
                           "storage_headroom_bytes": HEADROOM,
                           "new_output_statistics": STATISTICS_POLICY,
                           "mosaic_vrt": (f"{args.output_prefix}_mosaic.vrt"

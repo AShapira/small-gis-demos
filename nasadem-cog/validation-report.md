@@ -361,3 +361,74 @@ Evidence is under ignored `.validation/srtm-provider-vrt/`: the downloaded VRT,
 `full-tests.log`, `real-merge.log`, `real-validation.json`, and `real-cog/state.json`.
 The user's `D:\Maps` collection, a global merge, remote CI, and QGIS desktop
 rendering were not exercised.
+
+## Nearest-neighbor overview default — 2026-11-04
+
+The merger now defaults to nearest-neighbor overviews in both VRT-block and
+consolidation modes. `--overview-resampling average` retains averaged overviews
+and compatibility with pre-0.17 average-overview resume states. Nearest and
+average runs cannot share a resume identity; runs without overviews retain their
+previous identity. Full-resolution composition, Float32/Int16 types, NoData,
+compression settings, and exact statistics are unchanged.
+
+All **81/81 native tests passed** under Windows QGIS 4.2 / Python 3.12.13 /
+GDAL 3.13.1. Coverage includes default nearest pixels for Int16 and Float32,
+explicit average pixels, ignored stale source overviews, consolidation,
+legacy-average resume, method-change rejection without rewriting files, and
+resampler selection without enabling overviews. The nearest reference selects
+source indices independently with NumPy using GDAL's overview sampling rule;
+general-purpose `gdal.Translate` nearest resizing uses different pixel-center
+selection and is not the nearest-overview oracle. Average references explicitly
+disable source-overview reuse.
+
+Real release acceptance used the downloaded **N31E035_wgs84.tif**, a 3,601 × 3,601
+Float32 tile from the current provider VRT. The new default produced:
+
+| Mode | Output bytes | Base pixels verified | Overview levels |
+| --- | ---: | ---: | ---: |
+| VRT block | 15,886,471 | 12,967,201 | 3 |
+| Consolidation of that block | 15,887,336 | 12,967,201 | 3 |
+
+Both outputs passed full COG validation without warnings. Independent NumPy
+checks matched all base pixels bit for bit and all three overview arrays
+exactly against the provider's nearest-neighbor overviews. Exhaustive resumes
+preserved output SHA-256, size, and modification time. The source file also
+retained its SHA-256, size, and modification time.
+
+A copy of the earlier real average-overview output and its original state was
+used for compatibility testing. The new default refused that state. Explicit
+`--overview-resampling average --verify` checked all **12,967,201** base pixels
+and resumed the **21,657,653-byte** COG without changing its hash, size, or
+modification time. The original investigation artifacts were not modified.
+
+### Storage investigation motivating the default
+
+Before changing the default, **260 updated SRTM tiles** with origins 20..49° E,
+30..39° N were downloaded and their local hashes checked. The subset retained
+the provider's full-VRT source order, grid, and source mappings. Three 10° COGs
+were generated with the then-current average-overview merger; a controlled
+nearest-neighbor re-encoding used the same grids, DEFLATE-6, predictor 3,
+512-pixel tiles, and seven overview levels.
+
+| Product | Full-resolution compressed bytes | Overview compressed bytes | Total file bytes |
+| --- | ---: | ---: | ---: |
+| 260 source TIFFs | 1,993,350,615 | 887,893,598 | 2,881,932,433 |
+| Three average-overview COGs | 2,047,939,295 | 2,314,733,606 | 4,363,090,679 |
+| Three nearest-overview COGs | 2,047,939,295 | 926,808,132 | 2,975,165,205 |
+
+The merger checked **3,888,216,003** base pixels against the source composition.
+The nearest control independently matched all those pixels bit for bit against
+the verified average outputs. All six COGs passed full structural validation
+without warnings. Nearest saved **31.8%** versus average; its total was **3.2%**
+larger than the downloaded tiles. The extra four average overview levels beyond
+factor 8 accounted for only **40,414,644 bytes**. The dominant increase came
+from the poorer compression of averaged Float32 overview values.
+
+Evidence for the release checks is under the repository root's ignored
+`.validation/nasadem-nearest-default/`: `full-tests.log`, `real-validation.log`,
+`real-validation.json`, and the three real acceptance output directories.
+Investigation evidence is in `.validation/srtm-compression-20261104/` and the
+separate downloaded dataset's `COMPRESSION-REPORT.txt` and
+`compression-investigation.json`. These are sample measurements, not a global
+size guarantee or a terrain-accuracy audit. QGIS desktop rendering was not
+tested for this change.
