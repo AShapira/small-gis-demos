@@ -131,13 +131,19 @@ Pull the pinned images declared at the top of `run_test.py` before running if
 they are not cached. No Internet access is needed by the running test services.
 
 ```bash
-python3 -m venv nasadem-cog/.validation/s3-mosaic/venv
-nasadem-cog/.validation/s3-mosaic/venv/bin/python -m pip install \
-  -r nasadem-cog/s3-imagemosaic/requirements-test.txt
-nasadem-cog/.validation/s3-mosaic/venv/bin/python \
-  nasadem-cog/s3-imagemosaic/run_test.py \
+python3 -m venv dem-cog/.validation/s3-mosaic/venv
+dem-cog/.validation/s3-mosaic/venv/bin/python -m pip install \
+  -r dem-cog/s3-imagemosaic/requirements-test.txt
+dem-cog/.validation/s3-mosaic/venv/bin/python \
+  dem-cog/s3-imagemosaic/run_test.py \
   --input-dir nasadem-cog/.validation/real-10deg
 ```
+
+The retained validation COGs and historical evidence remain at their original
+`nasadem-cog/.validation/` paths after the DEM COG Builder code rename. The
+command selects those existing inputs explicitly; substitute your own COG
+directory when using different data. New test environments and evidence can
+live under `dem-cog/.validation/`.
 
 The expected filenames are:
 

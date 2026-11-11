@@ -18,8 +18,8 @@ import xml.etree.ElementTree as ET
 import numpy as np
 from osgeo import gdal, osr
 
-SCRIPT = Path(__file__).resolve().parents[1] / "create_nasadem_cogs.py"
-SPEC = importlib.util.spec_from_file_location("nasadem", SCRIPT)
+SCRIPT = Path(__file__).resolve().parents[1] / "create_dem_cogs.py"
+SPEC = importlib.util.spec_from_file_location("dem_cogs", SCRIPT)
 merger = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = merger
 SPEC.loader.exec_module(merger)
@@ -43,7 +43,7 @@ def overview_reference(ds, overview, resampling):
 
 class MergerTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="nasadem-test-")
+        self.temp = tempfile.TemporaryDirectory(prefix="dem-cog-test-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.inputs = self.root / "inputs with spaces"

@@ -17,6 +17,21 @@
   including overviews, and retain CPU/RAM controls and cooperative cancellation.
   Document options, temporary storage costs and COG codec compatibility.
 
+## 0.18.0 — 2026-11-11
+
+- Rename the tool to DEM COG Builder, with directory `dem-cog/` and standalone
+  entry point `create_dem_cogs.py`. Update documentation, test imports, launchers
+  and CI while preserving existing output names, metadata and resume formats.
+
+- Extend DEM COG Builder with recursive `--dted-dir` input and explicit
+  `--dted-level {1,2}` selection. Normalize latitude-zone longitude spacing by
+  nearest-neighbor duplication while preserving original elevation posts;
+  reject conflicting originals and prefer finer grids for duplicated samples.
+  Reuse COG blocks, exact statistics, overviews, verification, resume and stage
+  VRTs, with conservative storage estimates including per-worker staging.
+- Pass 99 native Windows QGIS/GDAL tests, including 18 DTED contracts for
+  latitude-zone grids, original-sample seams, NoData, verification and resume.
+
 ## 0.17.0 — 2026-11-04
 
 - Default NASADEM/SRTM COG overviews to nearest-neighbor in VRT and consolidation

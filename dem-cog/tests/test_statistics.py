@@ -8,7 +8,7 @@ import numpy as np
 from osgeo import gdal
 
 import test_consolidation as fixtures
-from test_nasadem import merger
+from test_dem_cogs import merger
 
 
 class StatisticsTests(unittest.TestCase):

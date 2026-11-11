@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Merge NASADEM/SRTM tiles into COG blocks, or consolidate previous results."""
+"""DEM COG Builder: build COG blocks from NASADEM, SRTM or DTED, or consolidate results."""
 import argparse
 from collections import OrderedDict
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
@@ -39,6 +39,7 @@ STATISTICS_FIELDS = {"minimum": "STATISTICS_MINIMUM", "maximum": "STATISTICS_MAX
                      "mean": "STATISTICS_MEAN", "stddev": "STATISTICS_STDDEV"}
 STATISTICS_CUSTOM = {"NASADEM_VALID_PIXEL_COUNT", "NASADEM_NODATA_PIXEL_COUNT",
                      "NASADEM_STATISTICS_METHOD"}
+DTED_POLICY = "nearest-longitude-original-posts-v1"
 
 
 class InputError(Exception):
@@ -189,11 +190,28 @@ def close(ds):
 
 
 @contextmanager
-def opened(path):
+def dted_options():
+    # Pin the node-grid convention and read actual headers, not PAM overrides.
+    # Thread-local settings also apply to the bounded readers in each worker.
+    settings = {"DTED_APPLY_PIXEL_IS_POINT": "FALSE", "REPORT_COMPD_CS": "FALSE",
+                "GDAL_DTED_SINGLE_BLOCK": "TRUE", "GDAL_PAM_ENABLED": "NO"}
+    previous = {key: gdal.GetThreadLocalConfigOption(key) for key in settings}
+    try:
+        for key, value in settings.items():
+            gdal.SetThreadLocalConfigOption(key, value)
+        yield
+    finally:
+        for key, value in previous.items():
+            gdal.SetThreadLocalConfigOption(key, value)
+
+
+@contextmanager
+def opened(path, driver="GTiff"):
     ds = gdal.OpenEx(str(path), gdal.OF_RASTER | gdal.OF_READONLY,
-                     allowed_drivers=["GTiff"], open_options=["NUM_THREADS=1"])
+                     allowed_drivers=[driver],
+                     open_options=["NUM_THREADS=1"] if driver == "GTiff" else [])
     if ds is None:
-        raise RunError(f"Cannot open TIFF: {path}")
+        raise RunError(f"Cannot open {driver}: {path}")
     try:
         yield ds
     finally:
@@ -258,6 +276,7 @@ class Source:
     use_mask: bool
     files: list
     base_bytes: int
+    dted_factor: int = 0  # width/height and dst describe the normalized node grid.
 
     @property
     def pixels(self):
@@ -293,10 +312,15 @@ class Inventory:
     missing: list
     identity: dict
     data_type: str = "Int16"
+    dted_excluded: int = 0
 
     @property
     def consolidating(self):
         return self.identity.get("mode") == "merge_results"
+
+    @property
+    def dted(self):
+        return self.identity.get("mode") == "dted_blocks"
 
     @property
     def numpy_dtype(self):
@@ -582,7 +606,123 @@ def read_results_inventory(directory, filename_filter=None, cancel=None, progres
                      band_metadata, props, sources, [], identity, data_type)
 
 
+def selected_dted(directory, level, filename_filter=None, cancel=None):
+    """Walk deterministically without descending into symlinks or junctions."""
+    if not directory.is_dir():
+        raise InputError(f"DTED directory does not exist: {directory}")
+    paths, excluded = [], 0
+    def failed(error):
+        raise error
+    for parent, directories, filenames in os.walk(directory, followlinks=False, onerror=failed):
+        if cancel is not None:
+            check_cancel(cancel)
+        directories[:] = sorted(name for name in directories
+                                if not (Path(parent) / name).is_symlink()
+                                and not getattr(Path(parent) / name, "is_junction", lambda: False)())
+        for name in sorted(filenames):
+            suffix = Path(name).suffix.lower()
+            if suffix not in (".dt1", ".dt2"):
+                continue
+            if filename_filter and filename_filter.casefold() not in name.casefold():
+                continue
+            if suffix != f".dt{level}":
+                excluded += 1
+            else:
+                paths.append((Path(parent) / name).resolve(strict=True))
+    return sorted(set(paths), key=lambda p: (str(p).casefold(), str(p))), excluded
+
+
+def read_dted_inventory(directory, level, filename_filter=None, cancel=None, progress=None):
+    cancel = cancel or threading.Event()
+    directory = Path(directory).resolve(strict=True)
+    paths, excluded = selected_dted(directory, level, filename_filter, cancel)
+    if not paths:
+        raise InputError(f"No selected DTED{level} files in {directory}")
+    n = 1200 if level == 1 else 3600
+    gt = (-180 - .5 / n, 1 / n, 0, 90 + .5 / n, 0, -1 / n)
+    crs = osr.SpatialReference()
+    crs.ImportFromEPSG(4326)
+    sources, records, provenance = [], [], []
+    template = None
+    next_notice = time.monotonic() + 5
+    with dted_options():
+        for path in paths:
+            check_cancel(cancel)
+            if progress and time.monotonic() >= next_notice:
+                progress(f"Inspecting DTED: {len(sources)} of {len(paths)} selected files")
+                next_notice = time.monotonic() + 5
+            with opened(path, "DTED") as ds:
+                band = ds.GetRasterBand(1)
+                header = ds.GetMetadata()
+                sg = ds.GetGeoTransform()
+                if (ds.RasterCount != 1 or band.DataType != gdal.GDT_Int16
+                        or ds.RasterYSize != n + 1 or ds.RasterXSize < 2):
+                    raise InputError(f"Expected a DTED{level} Int16 node-grid tile: {path}")
+                if (header.get("DTED_HorizontalDatum", "").strip() != "WGS84"
+                        or not wgs84(ds.GetProjection())):
+                    raise InputError(f"Expected DTED WGS84 horizontal datum: {path}")
+                vertical = {"MSL": "EGM96", "E96": "EGM96", "E08": "EGM2008"}.get(
+                    header.get("DTED_VerticalDatum", "").strip())
+                if vertical is None:
+                    raise InputError(f"Unsupported or missing DTED vertical datum: {path}")
+                if (not all(math.isfinite(v) for v in sg) or sg[2] or sg[4]
+                        or sg[1] <= 0 or abs(-sg[5] * n - 1) * n > TOLERANCE):
+                    raise InputError(f"Incompatible DTED latitude grid: {path}")
+                factor = integer(sg[1] * n, f"DTED longitude expansion for {path}")
+                if (factor not in (1, 2, 3, 4, 6)
+                        or (ds.RasterXSize - 1) * factor != n):
+                    raise InputError(f"Unsupported DTED longitude grid: {path}")
+                west = integer(sg[0] + sg[1] / 2, f"DTED west post for {path}")
+                north = integer(sg[3] + sg[5] / 2, f"DTED north post for {path}")
+                if (abs(sg[0] + sg[1] / 2 - west) * n > TOLERANCE
+                        or abs(sg[3] + sg[5] / 2 - north) * n > TOLERANCE):
+                    raise InputError(f"Misaligned DTED sample origin: {path}")
+                if not (-180 <= west < 180 and -90 < north <= 90):
+                    raise InputError(f"DTED tile outside geographic bounds: {path}")
+                if band.GetNoDataValue() is None:
+                    raise InputError(f"DTED requires finite NoData: {path}")
+                nodata = parse_nodata(band.GetNoDataValue(), "Int16")
+                if (band.GetScale() not in (None, 1) or band.GetOffset() not in (None, 0)
+                        or band.GetUnitType() != "m"
+                        or band.GetMaskFlags() not in (gdal.GMF_ALL_VALID, gdal.GMF_NODATA)):
+                    raise InputError(f"Unsupported DTED height units, scaling or mask: {path}")
+                if template is not None and template != (nodata, vertical):
+                    raise InputError(f"Incompatible DTED NoData or vertical datum: {path}")
+                template = nodata, vertical
+                gx, gy = (west + 180) * n, (90 - north) * n
+                files = [stamp(Path(p).resolve()) for p in ds.GetFileList()]
+                records.extend(files)
+                sources.append(Source(path, (0, 0, n + 1, n + 1), (gx, gy, n + 1, n + 1),
+                                      gx, gy, west, north - 1, n + 1, n + 1,
+                                      "ComplexSource", True, False, files,
+                                      ds.RasterXSize * ds.RasterYSize * 2, factor))
+                provenance.append({"path": str(path), "native_dimensions": [ds.RasterXSize, ds.RasterYSize],
+                                   "native_transform": sg, "longitude_factor": factor, "header": header})
+    nodata, vertical = template
+    identity = {"mode": "dted_blocks", "directory": str(directory), "level": level,
+                "filter": filename_filter, "selected": [str(p) for p in paths],
+                "sources": records, "provenance": provenance, "target_transform": gt,
+                "normalization": DTED_POLICY}
+    metadata = {"AREA_OR_POINT": "Point", "VERTICAL_DATUM": vertical,
+                "DTED_LEVEL": str(level), "DTED_NORMALIZATION": DTED_POLICY}
+    props = {"Scale": None, "Offset": None, "UnitType": "m", "Description": "", "ColorInterp": "Gray"}
+    return Inventory(None, gt, crs.ExportToWkt(), nodata, n, metadata, {}, props,
+                     sources, [], identity, dted_excluded=excluded)
+
+
+def check_dted_inventory(inv, cancel):
+    selected, _ = selected_dted(Path(inv.identity["directory"]), inv.identity["level"],
+                                inv.identity["filter"], cancel)
+    if [str(p) for p in selected] != inv.identity["selected"]:
+        raise RunError("Selected DTED files changed during processing")
+    unchanged(inv.identity["sources"])
+
+
 def unchanged_inventory(inv):
+    if inv.dted:
+        # Per-block dependencies are checked by process_block. Rediscover the
+        # whole tree once before stage publication, not for every worker/block.
+        return
     if inv.consolidating:
         selected = selected_results(Path(inv.identity["directory"]), inv.identity["filter"])
         if [str(p) for p in selected] != inv.identity["selected"]:
@@ -643,7 +783,8 @@ def plan_blocks(inv, block_size, minimum, output_prefix="NASADEM"):
         # A symmetric 360-degree grid on both axes; latitude is clipped below.
         west = -180 + ((source.west + 180) // block_size) * block_size
         south = -180 + ((source.south + 180) // block_size) * block_size
-        groups.setdefault((west, south), set()).add(str(source.path))
+        groups.setdefault((west, south), set()).add(
+            (source.west, source.south) if getattr(inv, "dted", False) else str(source.path))
     result = []
     gt = inv.transform
     for (west, south), paths in sorted(groups.items(), key=lambda item: (item[0][1], item[0][0])):
@@ -711,8 +852,9 @@ def write_block_vrt(path, inv, block, relative=False):
 
 class Readers:
     """Each verification worker owns at most 16 open source datasets."""
-    def __init__(self):
+    def __init__(self, driver="GTiff"):
         self.datasets = OrderedDict()
+        self.driver = driver
 
     def get(self, path):
         key = str(path)
@@ -721,7 +863,8 @@ class Readers:
                 _, old = self.datasets.popitem(last=False)
                 close(old)
             ds = gdal.OpenEx(key, gdal.OF_RASTER | gdal.OF_READONLY,
-                             allowed_drivers=["GTiff"], open_options=["NUM_THREADS=1"])
+                             allowed_drivers=[self.driver],
+                             open_options=["NUM_THREADS=1"] if self.driver == "GTiff" else [])
             if ds is None:
                 raise RunError(f"Cannot read source {path}")
             self.datasets[key] = ds
@@ -732,6 +875,158 @@ class Readers:
         for ds in self.datasets.values():
             close(ds)
         self.datasets.clear()
+
+
+def compose_dted_window(inv, sources, region, readers, cancel):
+    """Integer post-index mapping; native observations outrank synthesized posts."""
+    result = np.full((region[3], region[2]), inv.nodata, dtype=np.int16)
+    rank = np.full(result.shape, 255, dtype=np.uint8)
+    owner = np.full(result.shape, -1, dtype=np.int32)
+    for index, source in enumerate(sources):
+        check_cancel(cancel)
+        common = intersection(region, source.dst)
+        if common is None:
+            continue
+        x, y, w, h = common
+        local = np.arange(x - source.gx, x - source.gx + w, dtype=np.int64)
+        factor = source.dted_factor
+        columns = (2 * local + factor) // (2 * factor)  # midpoint ties east
+        first, last = int(columns[0]), int(columns[-1])
+        raw = readers.get(source.path).GetRasterBand(1).ReadAsArray(
+            first, y - source.gy, last - first + 1, h)
+        if raw is None:
+            raise RunError(f"Cannot read DTED source: {source.path}")
+        values = raw[:, columns - first]
+        valid = values != inv.nodata
+        native = (local % factor == 0)[None, :]
+        ox, oy = x - region[0], y - region[1]
+        target = result[oy:oy + h, ox:ox + w]
+        priority = rank[oy:oy + h, ox:ox + w]
+        owners = owner[oy:oy + h, ox:ox + w]
+        conflict = valid & native & (priority == 0) & (target != values)
+        if np.any(conflict):
+            row, col = map(int, np.argwhere(conflict)[0])
+            lon = -180 + (x + col) / inv.intervals
+            lat = 90 - (y + row) / inv.intervals
+            other = sources[int(owners[row, col])]
+            raise RunError(f"Conflicting original DTED elevations at {lon:.12g}, {lat:.12g}: "
+                           f"{other.path} ({target[row, col]}) and {source.path} ({values[row, col]})")
+        new_rank = np.where(native, 0, factor)
+        replace = valid & (new_rank < priority)
+        target[replace] = values[replace]
+        priority[replace] = np.broadcast_to(new_rank, values.shape)[replace]
+        owners[replace] = index
+    return result
+
+
+def write_dted_block(path, inv, block, cancel, progress):
+    """One sparse, uncompressed tiled staging raster per active output block."""
+    width, height = block.window[2:]
+    ds = None
+    readers = Readers("DTED")
+    stats = Statistics()
+    with dted_options():
+        try:
+            ds = gdal.GetDriverByName("GTiff").Create(str(path), width, height, 1, gdal.GDT_Int16,
+                options=["TILED=YES", "BLOCKXSIZE=512", "BLOCKYSIZE=512", "BIGTIFF=YES", "SPARSE_OK=YES"])
+            ds.SetProjection(inv.projection)
+            ds.SetGeoTransform(block_transform(inv, block))
+            ds.SetMetadata(inv.metadata)
+            band = ds.GetRasterBand(1)
+            band.SetNoDataValue(inv.nodata)
+            band.SetUnitType("m")
+            band.SetColorInterpretation(gdal.GCI_GrayIndex)
+            for y in range(0, height, EDGE):
+                for x in range(0, width, EDGE):
+                    check_cancel(cancel)
+                    w, h = min(EDGE, width - x), min(EDGE, height - y)
+                    region = block.window[0] + x, block.window[1] + y, w, h
+                    values = compose_dted_window(inv, block.sources, region, readers, cancel)
+                    band.WriteArray(values, x, y)
+                    stats.add(values, inv.nodata, x, y)
+                    progress(stats.total / (width * height))
+            result = stats.result()
+            band.SetMetadata(statistics_metadata(result))
+            band = None
+            return result
+        finally:
+            readers.close()
+            close(ds)
+
+
+def verify_dted_pixels(ds, inv, block, cancel, progress, statistics):
+    """Independent reference: use native geotransforms and binary nearest-post lookup.
+
+    This deliberately does not call the compositor or its integer-index formula.
+    Native rows/columns come from the original DTEDs, never the staging TIFF.
+    """
+    readers = Readers("DTED")
+    checked = 0
+    width, height = block.window[2:]
+    with dted_options():
+        try:
+            native_grids = []
+            for source in block.sources:
+                check_cancel(cancel)
+                original = readers.get(source.path)
+                gt = original.GetGeoTransform()
+                # Express physical source post coordinates as integral ticks on
+                # the output grid, avoiding geographic floating-point tie drift.
+                west = integer((gt[0] + gt[1] / 2 + 180) * inv.intervals, "Reference west tick")
+                north = integer((90 - gt[3] - gt[5] / 2) * inv.intervals, "Reference north tick")
+                dx = integer(gt[1] * inv.intervals, "Reference longitude spacing")
+                dy = integer(-gt[5] * inv.intervals, "Reference latitude spacing")
+                xs = west + np.arange(original.RasterXSize, dtype=np.int64) * dx
+                ys = north + np.arange(original.RasterYSize, dtype=np.int64) * dy
+                native_grids.append((source.path, xs, ys, dx))
+            for y in range(0, height, EDGE):
+                for x in range(0, width, EDGE):
+                    check_cancel(cancel)
+                    w, h = min(EDGE, width - x), min(EDGE, height - y)
+                    columns = np.arange(block.window[0] + x, block.window[0] + x + w)
+                    rows = np.arange(block.window[1] + y, block.window[1] + y + h)
+                    expected = np.full((h, w), inv.nodata, dtype=np.int16)
+                    priority = np.full((h, w), 255, dtype=np.uint8)
+                    for path, xs, ys, dx in native_grids:
+                        ix = np.flatnonzero((columns >= xs[0]) & (columns <= xs[-1]))
+                        iy = np.flatnonzero((rows >= ys[0]) & (rows <= ys[-1]))
+                        if not ix.size or not iy.size:
+                            continue
+                        wanted = columns[ix]
+                        right = np.searchsorted(xs, wanted).clip(0, len(xs) - 1)
+                        left = (right - 1).clip(0)
+                        take_right = xs[right] - wanted <= wanted - xs[left]
+                        nearest = np.where(take_right, right, left)
+                        sy = np.searchsorted(ys, rows[iy])
+                        a, b = int(nearest.min()), int(nearest.max())
+                        raw = readers.get(path).GetRasterBand(1).ReadAsArray(
+                            a, int(sy[0]), b - a + 1, len(sy))
+                        if raw is None:
+                            raise RunError(f"Cannot read DTED verification reference: {path}")
+                        values = raw[:, nearest - a]
+                        native = (xs[nearest] == wanted)[None, :]
+                        positions = np.ix_(iy, ix)
+                        current, rank = expected[positions], priority[positions]
+                        valid = values != inv.nodata
+                        if np.any(valid & native & (rank == 0) & (current != values)):
+                            raise RunError(f"Conflicting original DTED samples during verification: {path}")
+                        weight = np.broadcast_to(np.where(native, 0, dx), values.shape)
+                        replace = valid & (weight < rank)
+                        current[replace], rank[replace] = values[replace], weight[replace]
+                        expected[positions], priority[positions] = current, rank
+                    actual = ds.GetRasterBand(1).ReadAsArray(x, y, w, h)
+                    mask = ds.GetRasterBand(1).GetMaskBand().ReadAsArray(x, y, w, h)
+                    if (actual is None or mask is None or not np.array_equal(actual, expected)
+                            or not np.array_equal(mask != 0, expected != inv.nodata)):
+                        raise RunError(f"DTED pixel/NoData verification failed in {block.name} "
+                                       f"at window {x},{y},{w},{h}")
+                    if statistics is not None:
+                        statistics.add(expected, inv.nodata, x, y)
+                    checked += w * h
+                    progress(checked / (width * height))
+        finally:
+            readers.close()
+    return checked
 
 
 def verify_overlaps(inv, cancel):
@@ -771,6 +1066,8 @@ def verify_overlaps(inv, cancel):
 
 
 def verify_pixels(ds, inv, block, cancel, progress, statistics=None):
+    if inv.dted:
+        return verify_dted_pixels(ds, inv, block, cancel, progress, statistics)
     readers = Readers()
     checked = 0
     width, height = block.window[2:]
@@ -916,6 +1213,21 @@ def storage_estimate(block, overviews):
     """Estimate compressed output and CreateCopy scratch space without reading pixels."""
     width, height = block.window[2:]
     pixels = width * height
+    if any(source.dted_factor for source in block.sources):
+        tiles = math.ceil(width / EDGE) * math.ceil(height / EDGE)
+        staging = tiles * (EDGE * EDGE * 2 + 16) + 65536
+        dims = overview_dimensions(width, height) if overviews else []
+        overview_bytes = sum(math.ceil(w / EDGE) * math.ceil(h / EDGE)
+                             * (EDGE * EDGE * 2 + 16) for w, h in dims)
+        # Raw padded tiles are intentionally conservative: DTED source sizes
+        # do not predict DEFLATE size after longitude expansion.
+        output_bytes = staging + overview_bytes
+        temporary_bytes = staging + overview_bytes + 65536
+        return {"storage_estimate_method": "dted-raw-tiles-v1",
+                "estimated_source_base_bytes": sum(s.base_bytes for s in block.sources),
+                "estimated_staging_bytes": staging, "estimated_output_bytes": output_bytes,
+                "estimated_temporary_bytes": temporary_bytes,
+                "storage_reservation_bytes": math.ceil((output_bytes + temporary_bytes) * STORAGE_MARGIN)}
     source_areas, source_info, rectangles, seen = {}, {}, [], set()
     for source in block.sources:
         common = intersection(block.window, source.dst)
@@ -1053,11 +1365,20 @@ def process_block(inv, block, output, overviews, exhaustive, cancel, progress, a
                 "elapsed_seconds": time.monotonic() - start}
     staging = output / ".incomplete" / (block.name + "." + uuid.uuid4().hex)
     staging.mkdir(parents=True)
-    vrt = staging / "block.vrt"
+    vrt = staging / ("block.tif" if inv.dted else "block.vrt")
     candidate = staging / "candidate.tif"
-    write_block_vrt(vrt, inv, block)
-    stats = compute_vrt_statistics(vrt, inv.nodata, cancel,
-                                   lambda p: progress.set(block.name, .25 * p))
+    try:
+        if inv.dted:
+            stats = write_dted_block(vrt, inv, block, cancel,
+                                     lambda p: progress.set(block.name, .25 * p))
+        else:
+            write_block_vrt(vrt, inv, block)
+            stats = compute_vrt_statistics(vrt, inv.nodata, cancel,
+                                           lambda p: progress.set(block.name, .25 * p))
+    except BaseException:
+        if inv.dted:
+            shutil.rmtree(staging)
+        raise
     options = ["COMPRESS=DEFLATE", "LEVEL=6", f"PREDICTOR={inv.predictor}", "BLOCKSIZE=512",
                "BIGTIFF=YES" if inv.consolidating else "BIGTIFF=IF_SAFER",
                "NUM_THREADS=1", "STATISTICS=AUTO",
@@ -1099,6 +1420,8 @@ def process_block(inv, block, output, overviews, exhaustive, cancel, progress, a
         raise
     finally:
         close(ds)
+        if inv.dted and staging.exists():
+            shutil.rmtree(staging)
 
 
 def prepare_state(output, inv, blocks, args):
@@ -1109,6 +1432,9 @@ def prepare_state(output, inv, blocks, args):
         config = {"mode": "merge_results", "build_overviews": True,
                   "creation": f"DEFLATE-6-{inv.predictor}-512-YES-v1",
                   "overlap_policy": "reject_conflicts"}
+    if inv.dted:
+        config.update(mode="dted_blocks", normalization=DTED_POLICY,
+                      overlap_policy="original_posts_reject_conflicts_then_finer_duplicates")
     # Keep the original Int16/default-prefix resume signature unchanged.
     if args.output_prefix != "NASADEM":
         config["output_prefix"] = args.output_prefix
@@ -1250,6 +1576,9 @@ def execute(inv, blocks, output, args, cancel):
             log("Missing files are recorded in state.json; uncovered pixels will be NoData")
         if inv.consolidating:
             log("Checking overlapping valid elevations before consolidation; source overviews are ignored")
+        if inv.dted:
+            log(f"DTED{inv.identity['level']}: nearest longitude expansion; original posts take priority; "
+                f"{inv.dted_excluded} other-level files excluded. Storage estimates use raw padded tiles.")
         save_state(output, state)
         pending = [b for b in blocks if b.eligible]
         active = {}
@@ -1328,6 +1657,8 @@ def execute(inv, blocks, output, args, cancel):
                             f"{fraction:.1%}; ETA {round(eta)}s" if eta is not None else "Estimating ETA")
                         last_progress = now
             if not failures and not cancel.is_set():
+                if inv.dted:
+                    check_dted_inventory(inv, cancel)
                 publish_stage_vrt(output, state, inv, blocks, args.output_prefix, cancel)
         except Cancelled:
             cancel.set()
@@ -1355,12 +1686,21 @@ class VrtOnlyArgument(argparse.Action):
         namespace.vrt_only_options = (*getattr(namespace, "vrt_only_options", ()), option_string)
 
 
+class OutputPrefixArgument(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, values)
+        namespace.explicit_output_prefix = True
+
+
 def parser():
     result = argparse.ArgumentParser(description=__doc__)
     inputs = result.add_mutually_exclusive_group(required=True)
     inputs.add_argument("--vrt-file", type=Path, help="Original VRT referencing 1-degree TIFF tiles")
     inputs.add_argument("--merge-results-dir", type=Path,
                         help="Consolidate this directory's TIFFs into one COG with internal overviews")
+    inputs.add_argument("--dted-dir", type=Path, help="Recursively merge DTED tiles from this directory")
+    result.add_argument("--dted-level", type=int, choices=(1, 2),
+                        help="Required with --dted-dir: select DTED1 (3 arcseconds) or DTED2 (1 arcsecond)")
     result.add_argument("--output-dir", required=True, type=Path)
     result.add_argument("--block-size", type=block_size_argument, default=10, metavar="DEGREES",
                         action=VrtOnlyArgument,
@@ -1377,10 +1717,11 @@ def parser():
                         help="Warn and continue when estimated space is insufficient (default), "
                              "or stop before starting a block with error")
     result.add_argument("--min-tiles-per-block", type=int, default=1, action=VrtOnlyArgument,
-                        help="Minimum source tiles per block (VRT mode only)")
+                        help="Minimum nominal source tiles per block (VRT or DTED mode)")
     result.add_argument("--filename-filter", help="Case-insensitive basename substring")
     result.add_argument("--output-prefix", type=output_prefix_argument, default="NASADEM",
-                        help="Output filename prefix (default: NASADEM); use SRTM_GL1_Ellip for SRTM")
+                        action=OutputPrefixArgument,
+                        help="Output prefix (default: DTED1/DTED2 for DTED, otherwise NASADEM)")
     result.add_argument("--dry-run", action="store_true", help="Inspect and print the plan without writing files")
     return result
 
@@ -1388,9 +1729,16 @@ def parser():
 def run(args, cancel=None):
     args = argparse.Namespace(**vars(args))
     consolidating = args.merge_results_dir is not None
+    dted = getattr(args, "dted_dir", None) is not None
+    if dted != (getattr(args, "dted_level", None) is not None):
+        raise InputError("--dted-dir and --dted-level must be supplied together")
+    if dted and args.dted_level not in (1, 2):
+        raise InputError("--dted-level must be 1 or 2")
+    if dted and args.output_prefix == "NASADEM" and not getattr(args, "explicit_output_prefix", False):
+        args.output_prefix = f"DTED{args.dted_level}"
     if consolidating:
         if getattr(args, "vrt_only_options", ()):
-            raise InputError("--block-size and --min-tiles-per-block apply only to --vrt-file")
+            raise InputError("--block-size and --min-tiles-per-block apply only to --vrt-file or --dted-dir")
         args.build_overviews = True
     validate_block_size(args.block_size)
     output_prefix_argument(args.output_prefix)
@@ -1403,10 +1751,13 @@ def run(args, cancel=None):
     configure()
     cancel = cancel or threading.Event()
     try:
-        reader = read_results_inventory if consolidating else read_inventory
-        inv = reader(args.merge_results_dir if consolidating else args.vrt_file,
-                     args.filename_filter, cancel,
-                     lambda message: print(message, file=sys.stderr, flush=True))
+        notice = lambda message: print(message, file=sys.stderr, flush=True)
+        if dted:
+            inv = read_dted_inventory(args.dted_dir, args.dted_level, args.filename_filter, cancel, notice)
+        else:
+            reader = read_results_inventory if consolidating else read_inventory
+            inv = reader(args.merge_results_dir if consolidating else args.vrt_file,
+                         args.filename_filter, cancel, notice)
     except (RuntimeError, OSError, ValueError, TypeError, KeyError, ET.ParseError) as exc:
         raise InputError(f"Cannot inventory inputs: {exc}") from exc
     blocks = (plan_consolidation(inv, args.output_prefix) if consolidating else
@@ -1421,7 +1772,17 @@ def run(args, cancel=None):
     if output in input_paths or any(output / b.name in input_paths for b in blocks):
         raise InputError("Output paths overlap inputs")
     if args.dry_run:
-        print(json.dumps({"mode": "merge_results" if consolidating else "vrt_blocks",
+        estimates = sorted((storage_estimate(b, args.build_overviews)["storage_reservation_bytes"]
+                            for b in blocks if b.eligible), reverse=True)
+        dted_report = ({"dted_level": args.dted_level, "excluded_other_level_files": inv.dted_excluded,
+                        "target_spacing_arcseconds": 3600 / inv.intervals,
+                        "longitude_expansion_counts": {str(f): sum(s.dted_factor == f for s in inv.sources)
+                                                       for f in sorted({s.dted_factor for s in inv.sources})},
+                        "normalization": DTED_POLICY,
+                        "estimated_concurrent_reservation_bytes": sum(estimates[:args.workers]) + HEADROOM}
+                       if dted else {})
+        print(json.dumps({"mode": "dted_blocks" if dted else "merge_results" if consolidating else "vrt_blocks",
+                          **dted_report,
                           "sources": len(inv.sources), "missing_sources": inv.missing,
                           "data_type": inv.data_type, "nodata": inv.nodata,
                           "output_prefix": args.output_prefix,
@@ -1431,7 +1792,7 @@ def run(args, cancel=None):
                           "new_output_statistics": STATISTICS_POLICY,
                           "mosaic_vrt": (f"{args.output_prefix}_mosaic.vrt"
                                          if sum(b.eligible for b in blocks) > 1 else None),
-                          "overlap_validation": "during_execution" if consolidating else "vrt_precedence",
+                          "overlap_validation": "during_execution" if consolidating or dted else "vrt_precedence",
                           "blocks": [{"name": b.name, "bounds": b.bounds,
                                       "dimensions": b.window[2:], "tile_count": b.tile_count,
                                       "overview_dimensions": (overview_dimensions(*b.window[2:])

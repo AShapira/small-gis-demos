@@ -1,4 +1,7 @@
-# NASADEM merger validation — 2026-10-20
+# DEM COG Builder validation
+
+The initial validation below was performed on 2026-10-20 under the tool's
+former NASADEM merger name; later checks are recorded in dated sections.
 
 Validated with native **Windows QGIS 4.2**, Python **3.12.13**, GDAL **3.13.1**,
 and NumPy **2.4.6**. The command-line tool read local test inputs and wrote
@@ -432,3 +435,60 @@ separate downloaded dataset's `COMPRESSION-REPORT.txt` and
 `compression-investigation.json`. These are sample measurements, not a global
 size guarantee or a terrain-accuracy audit. QGIS desktop rendering was not
 tested for this change.
+
+## Recursive DTED and latitude-zone normalization — 2026-11-11
+
+The complete merger suite passed **99/99 tests**, including **18 new DTED
+tests**, using native Windows **QGIS 4.2 / Python 3.12.13 / GDAL 3.13.1 /
+NumPy 2.4.6**. The final run took 22.085 seconds. Existing NASADEM, Float32
+SRTM, consolidation, statistics, overview, and resume tests remain passing.
+
+The DTED fixtures are generated through GDAL's actual DTED driver at native
+DTED1/DTED2 dimensions, with inputs and outputs in Windows temporary directories.
+They are generated test data, not a validation of the user's source collection.
+The tests exercise:
+
+- Recursive and uppercase-extension discovery, level selection, basename
+  filtering, directory-link pruning, and metadata-only dry runs.
+- Factors 1, 2, 3, 4, and 6 in both hemispheres, midpoint ties, endpoints, and
+  reads spanning 512-pixel processing-window boundaries.
+- An exhaustively verified **3,601 × 3,601** DTED2 COG, and a DTED1 COG checked
+  against independent expected arrays, exact population statistics, and
+  nearest-neighbor overview references.
+- The 3-to-4 transition at 75° N, preserving original observations from both
+  grids and producing identical shared output rows; concurrent southern-zone
+  blocks with identical east/west edges.
+- Complementary NoData in duplicate tiles, distinct nominal-tile counting,
+  all-NoData output, uncovered block areas, and incompatible vertical datums.
+- Rejection of conflicting original observations without `--verify`, rejection
+  of invalid selected files and mismatched levels, and an independent verifier
+  that detects a deliberately corrupted compositor.
+- Cancellation cleanup and resume, unchanged source/output hashes and mtimes on
+  exhaustive resume, changed-source rejection, detection of newly added selected
+  inputs, portable stage VRT publication/regeneration, and single-COG VRT omission.
+- DTED driver settings pinned and restored around processing, and disk estimates
+  that include uncompressed staging plus concurrent workers' reservations.
+
+The retained local log is `.validation/dted-20261111/native-tests.log` (ignored
+by Git). Python compilation and `git diff --check` also passed. Native QGIS
+Python was launched with sandbox escalation to enable Windows/WSL interop;
+Linux Python in this environment has no GDAL bindings. No remote CI, desktop
+rendering, real-collection merge, or large-collection performance benchmark was
+performed for this change.
+
+## DEM COG Builder rename — 2026-11-11
+
+After relocating the source to `dem-cog/` and renaming the entry point to
+`create_dem_cogs.py`, the complete native Windows QGIS suite passed **99/99
+tests** in 22.270 seconds. The QGIS CLI launcher successfully displayed
+`create_dem_cogs.py --help` with the DEM COG Builder description. Python
+compilation and `git diff --check` also passed.
+
+All 18 previously tracked source paths were relocated and the new DTED tests
+were retained. CI now discovers `dem-cog/tests`. Output prefixes, statistics
+metadata, locking and resume identities were not renamed. Existing validation
+datasets and evidence remain under `nasadem-cog/.validation/`; historical S3
+test artifacts were preserved byte for byte.
+
+The local regression log is
+`.validation/dem-cog-rename-20261111/native-tests.log` (ignored by Git).

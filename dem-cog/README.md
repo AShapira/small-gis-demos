@@ -1,13 +1,24 @@
-# NASADEM / SRTM COG merger
+# DEM COG Builder
 
 Create Cloud Optimized GeoTIFF blocks from an existing local Int16 NASADEM or
 Float32 SRTM VRT and its 1° height tiles using any positive whole-degree divisor of 360. The default
 is 10°; 360° creates one whole-world COG. You can also consolidate previously
-merged TIFFs into one COG covering their combined extent. Run the single file
-`create_nasadem_cogs.py` in the **QGIS/OSGeo4W command shell on Windows**.
+merged TIFFs into one COG covering their combined extent, or recursively merge
+DTED1/DTED2 files while normalizing latitude-zone spacing. Run the single file
+`create_dem_cogs.py` in the **QGIS/OSGeo4W command shell on Windows**.
 It uses QGIS's GDAL, NumPy, and GDAL COG validator; no plugin or pip installation
 is required. Python 3.9+ and GDAL 3.6+ are required. This is a command-line tool,
 not a QGIS Python Console job.
+
+Previously named the NASADEM / SRTM COG merger, the tool now lives in
+`dem-cog/` and runs as `create_dem_cogs.py`. Existing command options, output
+prefix defaults, `NASADEM_*` statistics metadata, `.nasadem.lock`, and resume
+state formats remain compatible. Use the new script path to resume an existing
+output directory with the same inputs and options.
+
+Retained local validation datasets and historical evidence remain under
+`nasadem-cog/.validation/` so their recorded absolute paths stay valid. New
+validation work can use `dem-cog/.validation/`.
 
 ## Quick start
 
@@ -17,7 +28,7 @@ references files inside `NASADEM_be/`. Other local VRT filenames are accepted.
 From the QGIS/OSGeo4W shell, check the inputs and output plan first:
 
 ```cmd
-python create_nasadem_cogs.py ^
+python create_dem_cogs.py ^
   --vrt-file "D:\Maps\NASADEM\NASADEM_be.vrt" ^
   --output-dir "D:\Maps\NASADEM\COG_10deg" ^
   --block-size 10 ^
@@ -27,7 +38,7 @@ python create_nasadem_cogs.py ^
 Then generate COGs with exhaustive verification and internal overviews:
 
 ```cmd
-python create_nasadem_cogs.py ^
+python create_dem_cogs.py ^
   --vrt-file "D:\Maps\NASADEM\NASADEM_be.vrt" ^
   --output-dir "D:\Maps\NASADEM\COG_10deg" ^
   --block-size 10 ^
@@ -42,13 +53,75 @@ works in that shell. Do not install a second GDAL into QGIS with pip.
 Development validation uses Windows QGIS 4.2 / Python 3.12 / GDAL 3.13.
 The CI tests also exercise the system GDAL supplied by Ubuntu.
 
+## Recursive DTED directories
+
+Select **one DTED level per run**. Subdirectories are searched recursively;
+`.dt1`/`.dt2` extensions are case-insensitive. Directory symlinks and junctions
+are not traversed. Other-level files are counted and excluded; unreadable or
+incompatible selected files fail the run instead of being silently skipped.
+
+```cmd
+python create_dem_cogs.py ^
+  --dted-dir "D:\Maps\DTED" --dted-level 2 ^
+  --output-dir "D:\Maps\DTED_COG_10deg" ^
+  --block-size 10 --workers 2 --build-overviews --verify --dry-run
+```
+
+Remove `--dry-run` to create the COGs. DTED1 produces a **3″ × 3″** grid;
+DTED2 produces a **1″ × 1″** grid. These are square angular pixels in EPSG:4326.
+The default output prefix is `DTED1` or `DTED2`; `--output-prefix` overrides it.
+`--filename-filter` applies to basenames at every directory depth. Block layout,
+overview controls, cancellation, resume, exact output statistics, and stage VRTs
+work as in VRT mode. The default remains 10° blocks and eight workers; the example
+uses two workers to reduce simultaneous temporary storage.
+
+Longitude spacing is read from each source rather than inferred from its name.
+The standard latitude-zone factors **1, 2, 3, 4, and 6** are supported in both
+hemispheres. Nearest-neighbor duplication fills the extra longitude columns;
+latitude rows and original sample coordinates are preserved. Midpoint ties
+select the eastern sample. For example, 1,801 DTED2 longitude posts spanning
+one degree become **3,601 posts**, preserving both endpoints. This does not add
+terrain detail or average elevations. Source overviews are ignored.
+
+At shared edges and duplicate coverage:
+
+- Valid original observations take priority over duplicated values, even when
+  the original observation belongs to the coarser tile.
+- Different valid **original** heights at the same coordinate cause an error
+  naming both files and the location, including without `--verify`.
+- Where only duplicated values compete, the finer source grid wins.
+- Valid observations may fill another input's NoData. Remaining gaps use NoData.
+
+Inputs must contain compatible Int16 heights in metres, WGS84 horizontal
+coordinates, matching NoData, and a consistent declared vertical datum.
+`MSL`/`E96` are recorded as EGM96; `E08` as EGM2008. Other or mixed vertical
+references are rejected. No horizontal or vertical datum conversion occurs.
+Original DTED header metadata is retained per source in `state.json`; tile
+identifiers and production dates need not agree. The reader pins GDAL's DTED
+sample-origin convention and reads actual headers without PAM overrides.
+
+Each active worker composes a bounded window at a time into a temporary sparse,
+uncompressed tiled BigTIFF, then creates the compressed COG. There is no bulk
+conversion of the input tree. DTED dry-run estimates conservatively use raw,
+padded tile sizes, including staging and overview work; they do not predict a
+compression ratio from DTED file sizes. The report includes expansion-factor
+counts, normalized dimensions, excluded-level counts, and the reservation for
+concurrent workers. Normal cancellation/failure removes the current worker's
+temporary raster; a process kill can leave its private `.incomplete` directory.
+
+`--verify` independently reconstructs output samples from original DTED
+coordinates and values, checks every output value and NoData flag, and validates
+statistics and COG structure. Resume records the level, input inventory, target
+grid, and normalization/seam policy. Changed inputs or output settings require
+a new output directory. Existing NASADEM/SRTM resume states remain compatible.
+
 ## Consolidate previous merge results
 
 Use a directory of previously generated TIFFs as the input. The original 1°
 tiles, original VRT, and previous `state.json` are not required:
 
 ```cmd
-python create_nasadem_cogs.py ^
+python create_dem_cogs.py ^
   --merge-results-dir "D:\Maps\NASADEM\COG_10deg" ^
   --output-dir "D:\Maps\NASADEM\COG_merged" ^
   --verify
@@ -85,7 +158,7 @@ Consolidation always uses BigTIFF, DEFLATE level 6, the type-specific predictor,
 512-pixel tiles, and newly generated internal nearest-neighbor overviews by
 default. Source overviews are ignored. No overview levels are necessary when the image already fits
 512 × 512. `--build-overviews` is accepted but redundant in this mode.
-`--block-size` and `--min-tiles-per-block` apply only to `--vrt-file`.
+`--block-size` and `--min-tiles-per-block` apply to `--vrt-file` and `--dted-dir`.
 `--workers` still controls concurrent output files; consolidation has only one
 output and uses one GDAL compression thread.
 
@@ -129,11 +202,11 @@ merger accepts it but does not copy it into generated block VRTs or use it for
 base elevations. `--build-overviews` creates fresh internal overviews from
 full-resolution data, using `--overview-resampling` (default `nearest`). The
 provider declaration does not override this selection. Older merger versions
-rejected this element with `Unsupported VRT dataset element`; update `create_nasadem_cogs.py` without
+rejected this element with `Unsupported VRT dataset element`; update `create_dem_cogs.py` without
 editing or downloading the input VRT/tiles again.
 
 ```cmd
-python create_nasadem_cogs.py ^
+python create_dem_cogs.py ^
   --vrt-file "D:\Maps\SRTM_GL1_Ellip\SRTM_GL1_Ellip_srtm.vrt" ^
   --output-dir "D:\Maps\SRTM_GL1_Ellip\COG_10deg" ^
   --output-prefix SRTM_GL1_Ellip ^
@@ -185,18 +258,20 @@ COGs are never rewritten in place to change the method.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--vrt-file` | One input mode required | Local VRT with local 1° TIFF references. Mutually exclusive with `--merge-results-dir`. Relative paths resolve against the VRT directory. Absolute and UNC paths are supported. |
+| `--vrt-file` | One input mode required | Local VRT with local 1° TIFF references. Mutually exclusive with the other input modes. Relative paths resolve against the VRT directory. Absolute and UNC paths are supported. |
 | `--merge-results-dir` | One input mode required | Directory of previously merged TIFFs; create one COG with internal overviews covering their combined bounds. |
+| `--dted-dir` | One input mode required | Recursively discover DTED files and generate degree blocks on a uniform node grid. |
+| `--dted-level {1,2}` | Required with `--dted-dir` | Select DTED1 at 3″ or DTED2 at 1″; exclude the other level. Not accepted with other input modes. |
 | `--output-dir` | Required | New/empty directory, or the directory of a compatible resumable run. May be a subdirectory of the source collection. |
 | `--block-size DEGREES` | `10` | Positive integer divisor of 360; nominal geographic block size in degrees. Latitude bands are clipped at the poles. Use `360` for one whole-world COG. |
 | `--workers` | `8` | Maximum concurrent blocks. Each GDAL conversion uses one compression thread. |
 | `--verify` | Off | Check every full-resolution value and NoData flag against the selected input TIFFs, plus full COG structure. Applies to existing outputs on resume too. |
-| `--build-overviews` | Off in VRT mode; always on for consolidation | Build fresh internal overviews during COG conversion. |
-| `--overview-resampling {nearest,average}` | `nearest` | Method for newly generated overviews in either mode. Nearest selects existing samples and keeps Float32 SRTM outputs compact; average produces an averaged terrain representation and can require substantially more storage. Does not enable overviews by itself. |
+| `--build-overviews` | Off in VRT/DTED modes; always on for consolidation | Build fresh internal overviews during COG conversion. |
+| `--overview-resampling {nearest,average}` | `nearest` | Method for newly generated overviews in all input modes. Nearest selects existing samples and keeps Float32 SRTM outputs compact; average produces an averaged terrain representation and can require substantially more storage. Does not enable overviews by itself. |
 | `--disk-space-policy {warn,error}` | `warn` | Warn and continue if estimated space is insufficient or free space cannot be queried. Use `error` to stop before starting a block in these cases. |
 | `--min-tiles-per-block` | `1` | Minimum distinct available nominal 1° source tiles belonging to a block. Boundary-only neighbors do not inflate the count. |
 | `--filename-filter` | None | Case-insensitive substring of the basename, including extension. For example `"n32e"` selects northern 32° tiles in eastern longitudes. |
-| `--output-prefix` | `NASADEM` | Output filename prefix; use `SRTM_GL1_Ellip` for the ellipsoidal SRTM collection. Letters, digits, `_`, and `-` only, starting with a letter or digit. |
+| `--output-prefix` | `DTED1`/`DTED2` in DTED mode; otherwise `NASADEM` | Output filename prefix; use `SRTM_GL1_Ellip` for the ellipsoidal SRTM collection. Letters, digits, `_`, and `-` only, starting with a letter or digit. |
 | `--dry-run` | Off | Print source counts, missing files, exact blocks/dimensions, tile counts, estimated compressed output and temporary sizes, working-space reservations, and disk policy; create no outputs or logs. |
 
 Valid block sizes are **1, 2, 3, 4, 5, 6, 8, 9, 10, 12, 15, 18, 20, 24,
@@ -210,7 +285,7 @@ VRT, available files, filter, and minimum count determine it.
 
 ## Grid, seams, and missing coverage
 
-The tool accepts ordinary single-band Int16 or Float32 height VRTs in WGS 84
+In `--vrt-file` mode, the tool accepts ordinary single-band Int16 or Float32 height VRTs in WGS 84
 (EPSG:4326), with matching north-up square pixels, explicit matching NoData,
 and 1° TIFFs containing both endpoint samples. At native one-arcsecond spacing,
 each source has **3,601 × 3,601** samples and each 10° output has
@@ -260,7 +335,7 @@ At native one-arcsecond spacing it has **1,296,001 × 648,001** samples.
 Inspect its dimensions and compressed storage estimate before generation:
 
 ```cmd
-python create_nasadem_cogs.py ^
+python create_dem_cogs.py ^
   --vrt-file "D:\Maps\NASADEM\NASADEM_be.vrt" ^
   --output-dir "D:\Maps\NASADEM\COG_world" ^
   --block-size 360 ^
@@ -322,7 +397,7 @@ Outputs use DEFLATE level 6, integer predictor 2 (`PREDICTOR=STANDARD`) for Int1
 or floating-point predictor 3 (`PREDICTOR=FLOATING_POINT`) for Float32,
 512 × 512 tiles, and `BIGTIFF=IF_SAFER` for ordinary blocks; consolidation uses
 `BIGTIFF=YES`. `IF_SAFER` selection is GDAL's heuristic.
-In VRT mode, overviews are explicitly disabled unless requested. When enabled,
+In VRT and DTED modes, overviews are explicitly disabled unless requested. When enabled,
 overviews use nearest-neighbor by default, or explicit `--overview-resampling average`,
 at powers of two until the largest dimension is at most
 512. GDAL's COG generator may round odd overview dimensions down rather than
@@ -347,7 +422,7 @@ The process uses a shared 512 MiB GDAL cache, a 64-entry VRT dataset pool, and
 one GDAL compression thread per worker. These are planning limits, not a hard
 operating-system RAM ceiling.
 
-Storage estimates use the **actual compressed source TIFF sizes**, apportioned
+For VRT and consolidation modes, storage estimates use the **actual compressed source TIFF sizes**, apportioned
 to their contributing windows. Existing source overviews are discounted using
 their share of the source pyramid's pixel count; identical source references
 are counted once. Uncovered areas use a small compressed NoData-tile allowance
@@ -366,6 +441,8 @@ bounds: source compression, overview compression, terrain, and GDAL versions
 can change the actual result. No source files are modified by estimation.
 In particular, averaged Float32 overviews can be substantially larger than an
 estimate based on compact nearest-neighbor source overviews.
+DTED estimates instead use raw padded tile sizes and include the staging
+BigTIFF, as described under recursive DTED directories above.
 
 The default **`--disk-space-policy warn`** logs a warning and continues when a
 block's estimated working space exceeds free space. Scheduling still reduces
@@ -388,7 +465,9 @@ The output directory contains:
 - `run.log` and `errors.log`: appended across attempts.
 - `.nasadem.lock`: OS-released process lock; the small file may remain after exit.
 - `.incomplete/`: private staging directories; interrupted/failed candidates
-  remain for diagnosis and are rebuilt on retry.
+  remain for diagnosis and are rebuilt on retry in VRT/consolidation modes.
+  DTED workers remove their own staging on ordinary failure or cancellation;
+  files left by a killed process can remain.
 
 Repeat the same command to resume. VRT content and path, selected source
 paths/sizes/modification times (including GDAL-reported dependencies), and
@@ -445,7 +524,7 @@ verified TLS. Re-running reuses files only after checking their hashes.
 
 ```cmd
 python tests\fetch_public_subset.py .validation\public-subset
-python create_nasadem_cogs.py ^
+python create_dem_cogs.py ^
   --vrt-file ".validation\public-subset\NASADEM_e20-e40_n30-n40.vrt" ^
   --output-dir ".validation\real-10deg" ^
   --workers 2 --block-size 10 --verify --build-overviews

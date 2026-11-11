@@ -10,4 +10,6 @@ dist/
 build/
 results/
 .validation/
+# Historical DEM validation logs retained alongside the original datasets.
+/nasadem-cog/.validation*.log
 /overview-generator-validation/

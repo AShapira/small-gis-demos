@@ -26,7 +26,7 @@ if mode == "test":
         result = unittest.TextTestRunner(verbosity=2).run(suite)
         sys.exit(not result.wasSuccessful())
 elif mode == "cli":
-    sys.argv[0] = str(HERE.parent / "create_nasadem_cogs.py")
+    sys.argv[0] = str(HERE.parent / "create_dem_cogs.py")
     runpy.run_path(sys.argv[0], run_name="__main__")
 else:
     raise SystemExit("Expected test or cli")

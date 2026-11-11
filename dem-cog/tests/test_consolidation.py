@@ -15,12 +15,12 @@ import xml.etree.ElementTree as ET
 import numpy as np
 from osgeo import gdal, osr
 
-from test_nasadem import merger, overview_reference
+from test_dem_cogs import merger, overview_reference
 
 
 class ConsolidationTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix="nasadem-results-")
+        temporary = tempfile.TemporaryDirectory(prefix="dem-cog-results-")
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         self.inputs = self.root / "previous results"
