@@ -13,3 +13,7 @@ results/
 # Historical DEM validation logs retained alongside the original datasets.
 /nasadem-cog/.validation*.log
 /overview-generator-validation/
+# Retained local caches and archives from the relocated affine-fix project.
+/cesium-wms-gutter-demo/
+/kartoza-geoserver-affine-fix/
+/kartoza-geoserver-2.28.0-affine-fix/

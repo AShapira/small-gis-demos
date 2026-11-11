@@ -1,8 +1,7 @@
 # GeoTIFF compression benchmark
 
 Compare GeoTIFF compression and COG layouts, conversion cost and quality, and
-GeoServer WMS/WMTS delivery using Windows Podman Desktop. This folder also
-contains the related rotated-GeoTIFF investigation and its regression tests.
+GeoServer WMS/WMTS delivery using Windows Podman Desktop.
 
 The historical 10-user study is complete. Read the
 [results and limitations](docs/benchmark-results.md); the larger example matrix
@@ -28,14 +27,13 @@ credentials, retained resources, pause/resume and recovery.
 
 | Folder | Contents |
 | --- | --- |
-| `rasterbench/` | Controller, workers, reporting and affine analysis |
+| `rasterbench/` | Controller, workers and reporting |
 | `configs/` | Full and overnight example study configurations |
 | `infra/` | Containerfiles and pinned dependency manifests |
 | `scripts/` | PowerShell launcher, build and study helpers |
 | `tests/` | Unit tests and opt-in integration checks |
-| `docs/` | Methodology, operations, results and rotated-GeoTIFF study |
+| `docs/` | Methodology, operations and results |
 | `evidence/` | Curated compatibility results |
-| `patches/` | Experimental affine-rendering source patches |
 
 Local `.runs/` checkpoints and `.build/` caches live inside this folder and are
 ignored by Git. When updating an older checkout, move its benchmark `.runs/`,
@@ -58,9 +56,6 @@ For PowerShell, set `$env:PYTHONPATH = ".;.build/copernicus"` before running
 checksum-pinned test dependency when it is missing. Unit tests do not start
 services or download imagery; real-container integration is a separate opt-in
 step described in the operations guide.
-
-The Cesium demo reuses this folder's affine oracle and retained fixtures; see
-[its reference preparation instructions](../cesium-wms-gutter-demo/README.md).
 
 See [third-party notices](THIRD_PARTY_NOTICES.md) and the
 [project demo index](../README.md).

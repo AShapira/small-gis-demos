@@ -17,6 +17,15 @@
   including overviews, and retain CPU/RAM controls and cooperative cancellation.
   Document options, temporary storage costs and COG codec compatibility.
 
+## 0.19.0 — 2026-11-11
+
+- Remove the Cesium WMS gutter comparison, both Kartoza affine-fix bundles,
+  and supporting affine research code, patches, tests, evidence and CI jobs.
+  Development now lives in [AShapira/geoserver-affine-fix](https://github.com/AShapira/geoserver-affine-fix);
+  published tags and historical release contents remain unchanged.
+- Update the demo index, licensing notices and relocation documentation;
+  retain local ignored evidence, caches and generated archives.
+
 ## 0.18.0 — 2026-11-11
 
 - Rename the tool to DEM COG Builder, with directory `dem-cog/` and standalone

@@ -3,19 +3,6 @@ on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
 jobs:
-  kartoza-affine-hook:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: kartoza-geoserver-affine-fix
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: sha256sum -c SHA256SUMS
-      - run: bash -n apply-affine-fix.sh start-with-affine-fix.sh
-      - run: python -m unittest discover -s tests -p 'test_*.py' -v
   blazor-openlayers:
     runs-on: windows-latest
     env:
@@ -49,20 +36,6 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m unittest discover -s osm-basemap-demo/tests -v
-  cesium-adapter:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: cesium-wms-gutter-demo
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: cesium-wms-gutter-demo/package-lock.json
-      - run: npm ci
-      - run: npm test
   geotiff-merge:
     runs-on: ubuntu-latest
     steps:

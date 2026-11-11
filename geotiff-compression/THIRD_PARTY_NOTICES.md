@@ -7,10 +7,6 @@
   retains bundled software and licenses. See https://geoserver.org/license/.
 - GDAL / PROJ and codecs: provided by the pinned OSGeo GDAL image; consult
   the image's package inventory and bundled license notices.
-- The experimental affine patches target GeoTools 35.1 code licensed under
-  LGPL-2.1 and Eclipse ImageN 0.9.2 affine code licensed under Apache-2.0.
-  They are source diffs, not bundled binaries; preserve upstream licenses
-  when building or distributing them.
 - Python packages are listed in `infra/requirements.txt` and the worker's
   installed-package inventory. They include aiohttp, requests, Shapely, tqdm,
   PyYAML, NumPy, Pillow, scikit-image, Matplotlib, psutil and Python-Markdown.
